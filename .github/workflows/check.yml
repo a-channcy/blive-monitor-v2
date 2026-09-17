@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     # 作品监控总开关：设为 "true" 启用；列表（post_rooms.json）为空时整段跳过，不浪费资源
     env:
-      ENABLE_POST_CHECK: "true"
+      ENABLE_POST_CHECK: "false"
     steps:
       - uses: actions/checkout@v4
 
