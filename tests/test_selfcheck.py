@@ -156,7 +156,7 @@ def test_calc_freshness_states_and_mins():
         "var stat = null;\n"
         + frag + "\n"
         + "function fmtBeijing(ms){\n"
-        + "  var d = new Date(ms - (new Date().getTimezoneOffset() + 480) * 60000);\n"
+        + "  var d = new Date(ms + (new Date().getTimezoneOffset() + 480) * 60000);\n"
         + "  function p(n){ return (n<10?'0':'')+n; }\n"
         + "  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());\n"
         + "}\n"
