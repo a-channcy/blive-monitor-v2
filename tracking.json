@@ -174,7 +174,8 @@
     "last_duration": "66h18min"
   },
   "bilibili_11163068": {
-    "last_live": "",
-    "live_start": "2026-09-20 23:27:43"
+    "last_live": "2026-09-20 23:27:43",
+    "live_start": "",
+    "last_duration": "2h48min"
   }
 }
