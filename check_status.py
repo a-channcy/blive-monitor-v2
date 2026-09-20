@@ -97,7 +97,8 @@ def load_config() -> Dict[str, Any]:
                 rooms = json.load(f)
         except (json.JSONDecodeError, IOError) as e:
             logger.error("加载 rooms.json 失败: %s", e)
-
+        raise SystemExit(1)
+    
     # 推送配置：多通道（serverchan/wecom/pushplus/bark/telegram），兼容旧 sendkey
     raw_config = os.environ.get("BLIVE_CONFIG", "{}")
     push_cfg = load_push_cfg(raw_config)
