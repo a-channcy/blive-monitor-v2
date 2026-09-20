@@ -124,8 +124,8 @@ jobs:
           for i in 1 2; do
             git push origin HEAD:main 2>&1 && break
             echo "push 失败，重试 ($i)... 重新 fetch + 合并"
-            git fetch origin master 2>&1 || true
-            python3 merge_state.py origin/master
+            git fetch origin main 2>&1 || true
+            python3 merge_state.py origin/main
             TMPD=$(mktemp -d)
             for f in state.json tracking.json history.json post_tracking.json post_rooms.json notify_dedup.json status.json summary_state.json; do
               [ -f "$f" ] && cp "$f" "$TMPD/"
