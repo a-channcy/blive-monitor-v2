@@ -78,7 +78,7 @@ jobs:
       # D1：抖音新作封面转存（仅 post_rooms 非空时运行；差异提交避免仓库膨胀）
       - name: Transcode covers
         if: ${{ steps.postlist.outputs.enabled == 'true' }}
-        run:           python3 transcode_covers.py --owner racheko-lab --repo blive-monitor-v2 --branch main --covers-dir assets/covers
+        run:           python3 transcode_covers.py --owner a-channcy --repo blive-monitor-v2 --branch main --covers-dir assets/covers
 
       # A1：定时摘要自动投递（在 history.json 已更新的同轮运行；失败不影响持久化/部署）
       - name: Auto-deliver summary
