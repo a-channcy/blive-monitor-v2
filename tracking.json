@@ -152,8 +152,9 @@
     "live_start": ""
   },
   "bilibili_1938412195": {
-    "last_live": "",
-    "live_start": "2026-09-21 23:00:23"
+    "last_live": "2026-09-21 23:00:23",
+    "live_start": "",
+    "last_duration": "2h59min"
   },
   "bilibili_1724774841": {
     "last_live": "",
