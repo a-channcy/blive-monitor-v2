@@ -148,8 +148,9 @@
     "live_start": ""
   },
   "bilibili_23329385": {
-    "last_live": "",
-    "live_start": "2026-10-02 08:51:20"
+    "last_live": "2026-10-02 08:51:20",
+    "live_start": "",
+    "last_duration": "5h47min"
   },
   "bilibili_1938412195": {
     "last_live": "2026-09-26 01:24:25",
@@ -169,10 +170,10 @@
     "live_start": ""
   },
   "douyin_928121078262": {
-    "last_live": "2026-10-01 17:02:14",
-    "live_start": "2026-10-02 08:51:20",
+    "last_live": "2026-10-02 08:51:20",
+    "live_start": "",
     "sec_uid": "MS4wLjABAAAAwyP7d4n3256RPrr1SEDMQZeH8K2Ga12mIO1pnT1S30A",
-    "last_duration": "7h19min",
+    "last_duration": "5h47min",
     "live_duration": "2h23min"
   },
   "bilibili_11163068": {
