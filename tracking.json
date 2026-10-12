@@ -144,9 +144,10 @@
     "live_start": ""
   },
   "bilibili_16405": {
-    "last_live": "",
-    "live_start": "2026-10-12 18:35:15",
-    "live_duration": "3h20min"
+    "last_live": "2026-10-12 18:35:15",
+    "live_start": "",
+    "live_duration": "3h20min",
+    "last_duration": "3h25min"
   },
   "bilibili_23329385": {
     "last_live": "2026-10-02 08:51:20",
