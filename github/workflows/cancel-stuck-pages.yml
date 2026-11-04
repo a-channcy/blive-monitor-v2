@@ -1,0 +1,42 @@
+name: 取消卡住的 Pages 部署
+
+on:
+  workflow_dispatch:
+
+permissions:
+  pages: write
+
+jobs:
+  cancel-pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      DEPLOYMENT_ID: 4c533ea5d6e8302d5fe45c9c0f6edc6d1e81d574
+
+    steps:
+      - name: 查询并取消指定旧部署
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          endpoint="repos/$REPO/pages/deployments/$DEPLOYMENT_ID"
+
+          echo "查询指定旧部署：$DEPLOYMENT_ID"
+          status=$(gh api "$endpoint" --jq '.status')
+          echo "当前状态：$status"
+
+          case "$status" in
+            succeed|deployment_cancelled)
+              echo "部署已经成功或已取消，不再发送取消请求。"
+              exit 0
+              ;;
+          esac
+
+          echo "尝试取消这个指定的旧部署..."
+          gh api --method POST --include "$endpoint/cancel"
+
+          echo "取消请求已成功返回，重新查询状态："
+          gh api "$endpoint"
