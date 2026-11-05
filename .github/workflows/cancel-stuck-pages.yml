@@ -2,6 +2,11 @@ name: 取消卡住的 Pages 部署
 
 on:
   workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: 要取消的 Pages 部署 ID
+        required: true
+        type: string
 
 permissions:
   pages: write
@@ -14,29 +19,34 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      DEPLOYMENT_ID: 4c533ea5d6e8302d5fe45c9c0f6edc6d1e81d574
+      DEPLOYMENT_ID: ${{ inputs.deployment_id }}
 
     steps:
-      - name: 查询并取消指定旧部署
+      - name: 查询并重新请求取消指定部署
         shell: bash
         run: |
           set -euo pipefail
 
+          if [[ ! "$DEPLOYMENT_ID" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::部署 ID 必须是完整的 40 位提交哈希。"
+            exit 1
+          fi
+
           endpoint="repos/$REPO/pages/deployments/$DEPLOYMENT_ID"
 
-          echo "查询指定旧部署：$DEPLOYMENT_ID"
+          echo "查询部署：$DEPLOYMENT_ID"
           status=$(gh api "$endpoint" --jq '.status')
           echo "当前状态：$status"
 
-          case "$status" in
-            succeed|deployment_cancelled)
-              echo "部署已经成功或已取消，不再发送取消请求。"
-              exit 0
-              ;;
-          esac
+          if [[ "$status" == "succeed" ]]; then
+            echo "该部署已经成功，不取消。"
+            exit 0
+          fi
 
-          echo "尝试取消这个指定的旧部署..."
+          # 即便显示已取消，也重新发送一次请求：
+          # 用于处理旧部署已取消却仍阻塞新部署的情况。
+          echo "发送一次取消请求..."
           gh api --method POST --include "$endpoint/cancel"
 
-          echo "取消请求已成功返回，重新查询状态："
+          echo "取消请求已返回，重新查询状态："
           gh api "$endpoint"
