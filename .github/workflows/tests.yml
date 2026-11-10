@@ -1,0 +1,48 @@
+name: 回归测试
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**.py'
+      - 'tests/**'
+      - 'monitor.html'
+      - 'requirements*.txt'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '**.py'
+      - 'tests/**'
+      - 'monitor.html'
+      - 'requirements*.txt'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Frontend data regression
+        run: node --test tests/frontend_data.test.cjs
+
+      - name: Run pytest
+        run: python -m pytest tests/ -q
+

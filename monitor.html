@@ -2713,7 +2713,7 @@ function calcFreshness(updated, now){
   if(!updated || ms === null){
     return {
       state:'loadfail', mins:null, updated:updated||null,
-      label:'加载失败·无法读取状态文件，请检查网络 / GitHub Pages 部署'
+      label:'加载失败·无法读取状态文件，请检查网络或仓库数据'
     };
   }
   var mins = Math.max(0, Math.round((now - ms) / 60000));
@@ -3884,60 +3884,89 @@ function renderHealthBar(f){
     '<span class="blm-freshness-time blm-mono">'+e(f.updated || '') + rel + '</span>';
 }
 
+function fetchPublicData(path){
+  var url='https://raw.githubusercontent.com/'+GH_REPO+'/'+encodeURIComponent(GH_BRANCH)+'/'+path+'?_='+Date.now();
+  return fetch(url,{cache:'no-store',signal:AbortSignal.timeout(8000)}).then(function(r){
+    if(!r.ok) throw new Error(path+' HTTP '+r.status);
+    return r.json();
+  }).then(function(data){
+    var list=['rooms.json','history.json','post_rooms.json'].indexOf(path)>=0;
+    if(list ? !Array.isArray(data) : (!data || typeof data!=='object' || Array.isArray(data)))
+      throw new Error(path+' 数据格式错误');
+    if(path==='status.json' && (!Array.isArray(data.rooms) || parseBeijing(data.updated)===null))
+      throw new Error('status.json 缺少有效数据时间或房间列表');
+    return data;
+  });
+}
+
+function loadConfigMirror(path,statusId){
+  var request=getGhToken()
+    ? ghGetFile(path).then(function(f){
+        if(!f.rooms||typeof f.rooms!=='object'||Array.isArray(f.rooms))throw new Error('配置格式错误');
+        return f.rooms;
+      }).catch(function(){return fetchPublicData(path);})
+    : fetchPublicData(path);
+  return request.then(function(data){
+    var el=document.getElementById(statusId);
+    if(el&&el.dataset.loadError){el.style.display='none';delete el.dataset.loadError;}
+    return data;
+  }).catch(function(){
+    var el=document.getElementById(statusId);
+    if(el){
+      el.dataset.loadError='true';el.style.display='block';el.style.color='var(--state-warning)';
+      el.textContent='配置读取失败，保留上次显示的设置；请刷新重试后再修改。';
+    }
+    return null;
+  });
+}
+
 function ld(){
-  var t=Date.now();
-  var hasTok=getGhToken();
-  Promise.all([
-    fetch('status.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(function(r){return r.ok?r.json():null}).catch(function(){return null}),
-    /* 房间列表优先从 GitHub API 实时读取（已鉴权），避免 Pages 静态文件最长 ~5 分钟的滞后导致增删“复活”。
-       读取结果统一包成 {ok,data/err}，便于在失败时给出明确提示，而不是静默显示“暂无监控房间”。 */
-    (hasTok
-      ? apiGetRooms().then(function(r){return {ok:true,data:r};}).catch(function(err){return {ok:false,err:err};})
-      : fetch('rooms.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(async function(r){return r.ok?{ok:true,data:await r.json()}:{ok:false};}).catch(function(){return {ok:false};})),
-    fetch('history.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(function(r){return r.ok?r.json():null}).catch(function(){return null}),
-    fetch('post_rooms.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(function(r){return r.ok?r.json():[]}).catch(function(){return [];}),
-    fetch('post_tracking.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(function(r){return r.ok?r.json():{}}).catch(function(){return {};})
-  ]).then(function(v){
-    if(v[0])stat=v[0];
-    var rv=v[1];
-    if(rv&&rv.ok) rooms=rv.data;
-    if(v[2])hist=v[2];if(v[3])postRooms=v[3];if(v[4])postTrack=v[4];
-    var n=new Date();document.getElementById('stime').textContent=n.toLocaleTimeString('zh-CN',{hour12:false});
-    var liveCount=stat&&stat.rooms?stat.rooms.filter(function(r){return r.status==='live'}).length:0;
-    var hasErr=stat&&stat.rooms?stat.rooms.some(function(r){return r.status==='error'}):false;
-    var dcls=liveCount>0?'on':(hasErr?'err':'ok');
-    var dtxt=liveCount>0?('直播中 '+liveCount):(hasErr?'有异常':'已更新');
-    document.getElementById('sdot').innerHTML='<span class="dot '+dcls+'"></span><span class="txt">'+dtxt+'</span>';
-    // P0-1：基于 status.updated 渲染常驻健康条（新鲜度四态：ok/warn/stale/fail）
-    var __fresh = calcFreshness();
-    renderHealthBar(__fresh);
-    window.__fresh = __fresh;
+  var files=['status.json','rooms.json','history.json','post_rooms.json','post_tracking.json'];
+  return Promise.all(files.map(function(path){
+    // 已配置写入凭据时保留房间列表的即时读取，避免刚增删后被 Raw 缓存覆盖。
+    var readList=path==='rooms.json'?apiGetRooms:(path==='post_rooms.json'?apiGetPostRooms:null);
+    var request=readList&&getGhToken()
+      ? readList().then(function(data){
+          if(!Array.isArray(data))throw new Error('房间列表格式错误');
+          return data;
+        }).catch(function(){return fetchPublicData(path);})
+      : fetchPublicData(path);
+    return request.then(function(data){return {ok:true,data:data};})
+      .catch(function(err){return {ok:false,err:err};});
+  })).then(function(v){
+    // 读取失败保留上次成功的数据，但必须明确标出本次失败。
+    if(v[0].ok)stat=v[0].data;
+    if(v[1].ok)rooms=v[1].data;
+    if(v[2].ok)hist=v[2].data;
+    if(v[3].ok)postRooms=v[3].data;
+    if(v[4].ok)postTrack=v[4].data;
+    var failed=files.filter(function(_,i){return !v[i].ok;});
+    var fresh=calcFreshness();
+    if(!v[0].ok){
+      fresh={state:'loadfail',mins:fresh.mins,updated:stat&&stat.updated||null,
+        label:'状态读取失败'+(stat&&stat.updated?'·正在显示上次成功读取的数据':'')+'，请检查网络后重试'};
+    }
+    window.__fresh=fresh;
+    renderHealthBar(fresh);
+    var liveCount=stat&&Array.isArray(stat.rooms)?stat.rooms.filter(function(r){return r.status==='live';}).length:0;
+    var hasErr=stat&&Array.isArray(stat.rooms)?stat.rooms.some(function(r){return r.status==='error';}):false;
+    var text=failed.length?'部分数据读取失败':(fresh.state==='stale'?'数据已过期':(fresh.state==='warn'?'数据偏旧':(hasErr?'有异常':(liveCount?'直播中 '+liveCount:'读取成功'))));
+    if(!v[0].ok)text='状态读取失败';
+    var cls=failed.length||fresh.state!=='ok'||hasErr?'err':(liveCount?'on':'ok');
+    document.getElementById('sdot').innerHTML='<span class="dot '+cls+'"></span><span class="txt">'+text+'</span>';
+    document.getElementById('sdot').title=failed.length?'读取失败：'+failed.join('、'):'';
+    document.getElementById('stime').textContent='数据时间：'+(stat&&stat.updated||'暂无');
     document.getElementById('statLive').textContent=liveCount;
     document.getElementById('statRooms').textContent=rooms.length;
     document.getElementById('statPosts').textContent=postRooms.length;
-    if(rv&&!rv.ok){
-      /* 读取失败（Token 失效/权限不足/网络不可达等）：明确提示原因，并尝试用静态文件降级显示，避免一片空白 */
-      var reason=(rv.err&&rv.err.message)?rv.err.message:'网络或 Token 错误';
-      fetch('rooms.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(function(r){return r.ok?r.json():[];}).catch(function(){return [];}).then(function(fb){
-        if(fb&&fb.length){
-          rooms=fb;
-          document.getElementById('liveBody').innerHTML='<div class="empty" style="color:#ffa502">⚠️ 实时读取失败：'+e(reason)+'<br>已用缓存列表显示（只读）；点「⚙️ 设置 Token」填入有效 Token 后即可正常增删</div>';
-          renderLive();renderPosts();renderLog();renderDashboard();
-        }else{
-          document.getElementById('liveBody').innerHTML='<div class="empty">⚠️ 房间列表读取失败：'+e(reason)+'<br>请点「⚙️ 设置 Token」填入有效 Token 后刷新；<br>或检查网络是否能访问 api.github.com</div>';
-          renderPosts();renderLog();
-        }
-      });
-      return;
-    }
     readViewParam();
-    renderLive();renderPosts();renderLog();
-    renderDashboard();   // P0-7 仪表盘：数据载入即聚合渲染，切 tab 不重算
-    maybeShowSummary();  // 阶段二 2a：跨日/跨周未生成则展示摘要卡
-    loadPhase2UI();      // 阶段二 2b：标签 chip / 静默镜像 / 通道路由 / 模板编辑器 / 批量条
+    renderLive();renderPosts();renderLog();renderDashboard();
+    if(!v[1].ok&&!rooms.length)
+      document.getElementById('liveBody').innerHTML='<div class="empty">⚠️ 主播列表读取失败，请检查网络后重试</div>';
+    maybeShowSummary();
+    loadPhase2UI();
   }).catch(function(){
     document.getElementById('sdot').innerHTML='<span class="dot err"></span><span class="txt">加载失败</span>';
-    // P0-1：总加载失败（无法读取 status.json）→ 健康条标红，指向网络 / Pages 部署
     renderHealthBar(calcFreshness(null));
     if(!rooms.length)document.getElementById('liveBody').innerHTML='<div class="empty">⚠️ 数据加载失败，请刷新重试</div>';
   });
@@ -4148,12 +4177,9 @@ function renderSummary(sent){
  * 自动投递（无人值守）由未来 CI job 读 BLIVE_CONFIG.summary 完成，本波仅做前端展示+手动触发。
  */
 function maybeShowSummary(){
-  var t = Date.now();
-  fetch('summary_state.json?_=' + t, {signal: AbortSignal.timeout(8000)})
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .catch(function(){ return null; })
+  loadConfigMirror('summary_state.json','summaryStatus')
     .then(function(st){
-      window.__summaryState = st || { enabled: false, lastSent: 0, freq: 'daily', sendTime: '09:00' };
+      window.__summaryState = st || window.__summaryState || { enabled: false, lastSent: 0, freq: 'daily', sendTime: '09:00' };
       if(!window.__summaryState.freq) window.__summaryState.freq = 'daily';
       if(window.__summaryState.sendTime === undefined) window.__summaryState.sendTime = '09:00';
       var enEl = document.getElementById('summaryEnabled');
@@ -4841,9 +4867,8 @@ function buildSilenceConfig(){
 }
 /** 载入可读镜像 silence_state.json，回显控件 + 渲染当前静默提示。 */
 function loadSilenceUI(){
-  var t=Date.now();
-  fetch('silence_state.json?_='+t,{signal:AbortSignal.timeout(8000)}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}).then(function(st){
-    window.__silenceState = st || {enabled:false, start:'23:00', end:'08:00'};
+  loadConfigMirror('silence_state.json','silenceStatus').then(function(st){
+    window.__silenceState = st || window.__silenceState || {enabled:false, start:'23:00', end:'08:00'};
     var enEl=document.getElementById('silenceEnabled');
     var stEl=document.getElementById('silenceStart');
     var en2El=document.getElementById('silenceEnd');
