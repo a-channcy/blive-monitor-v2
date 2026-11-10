@@ -187,49 +187,13 @@ jobs:
   deploy:
     needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
-      # 用于列出 github-pages 环境的部署记录（清理卡住的部署）
-      deployments: read
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      # 部署前自动取消卡住的 Pages 部署，避免 "due to in progress deployment" 错误
-      # 整个 workflow 受 concurrency: live-check 串行保护，不会误取消正在进行的本轮部署
-      - name: Cancel stuck Pages deployments
-        continue-on-error: true
-        timeout-minutes: 3
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -uo pipefail
-          cancelled=0
-          # Pages 部署 ID 即 commit SHA；取 github-pages 环境最近 10 条部署记录
-          shas=$(gh api "repos/$REPO/deployments?environment=github-pages&per_page=10" --jq '.[].sha' 2>/dev/null | sort -u || true)
-          for sha in $shas; do
-            st=$(gh api "repos/$REPO/pages/deployments/$sha" --jq '.status' 2>/dev/null || echo "unknown")
-            case "$st" in
-              succeed|deployment_cancelled|deployment_failed|deployment_content_failed|deployment_attempt_error|deployment_lost|unknown)
-                ;;  # 已结束或查不到，跳过
-              *)
-                echo "取消卡住的部署 $sha（状态：$st）"
-                gh api --method POST "repos/$REPO/pages/deployments/$sha/cancel" >/dev/null 2>&1 \
-                  && cancelled=$((cancelled+1)) \
-                  || echo "::warning::取消 $sha 失败"
-                ;;
-            esac
-          done
-          echo "已取消 $cancelled 个卡住的部署"
-          if [ "$cancelled" -gt 0 ]; then sleep 10; fi
-
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
-        with:
-          # 5 分钟超时（默认 10 分钟），与 cron 间隔一致；超时后 action 会自行取消本次部署
-          timeout: 300000
