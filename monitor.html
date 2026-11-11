@@ -2077,7 +2077,7 @@ body {
           <div class="blm-config-card">
             <div class="blm-config-item vertical">
               <div class="blm-config-item-info">
-                <div class="blm-config-item-desc">开启后，直播视图顶部展示「今日/本周摘要」（N 人开播 · M 条新作），可一键复制或请求推送。自动投递由 CI 读取仓库 Secret（BLIVE_CONFIG.summary）完成。</div>
+                <div class="blm-config-item-desc">开启后展示今日/本周摘要，并由 CI 按独立保存的设置自动投递。请求推送会在下一轮监控处理，仍遵守静默和重试间隔；推送渠道沿用已有配置。</div>
                 <div class="blm-switch-row">
                   <span class="blm-config-item-title">启用定时摘要</span>
                   <input type="checkbox" id="summaryEnabled" class="blm-switch">
@@ -3481,7 +3481,7 @@ function exportReport(format){
  *   - tags / enabled            : 以 local 为准（本地 mutate 意图优先）；
  *   - sec_uid / name（非空时）  : 以 remote 为准（CI 写回字段优先；remote 为空取 local）；
  *   - 其余字段                  : remote 优先，local 显式非空覆盖 remote。
- * 返回 {rooms:[...], changed:bool}。供 ghWriteWithRetry 重试兜底，且与 Python 参考实现一致。
+ * 返回 {rooms:[...], changed:bool}。仅用于明确需要并集的操作，不能用于删除/配置写回。
  */
 function enhancedMerge(local, remote){
   local = local || [];
@@ -3544,23 +3544,17 @@ function isRetryableError(e){
  * 内部增强（相对 2a/2b）：
  *   ① 409 / 5xx / 网络错误均退避重试（≤5 次，退避 0.5→1→2→4s 封顶 8s）；
  *   ② 每次重试先 ghGetFile 拿远端最新 base，再重跑 mutate（=不丢并发/CI 改动）；
- *   ③ 重试时以字段级 enhancedMerge(local, remote) 兜底（tags/enabled 本地优先、sec_uid/name 远端优先）。
- * 首成功路径与旧版完全一致（不套 merge，保证 saveRoomEdit 等领域行为零回归）。
+ *   mutate 必须基于传入的最新数据修改；不额外取并集，否则会撤销删除和重命名。
  */
 function ghWriteWithRetry(path, mutate){
   var attempt = 0;
   var MAX = 5;
   var backoff = [500, 1000, 2000, 4000, 8000]; // 退避序列，封顶 8s
-  function run(useMerge){
+  function run(){
     return ghGetFile(path).then(function(file){
       var res = mutate(file.rooms);
       if(!res.changed) return Object.assign({}, res, { sha: file.sha });
       var payload = res.rooms;
-      // 仅在重试（冲突/5xx/网络）时套字段级合并兜底，避免改变首成功路径行为
-      if(useMerge){
-        var merged = enhancedMerge(res.rooms, file.rooms);
-        payload = merged.rooms;
-      }
       return ghPutFile(path, payload, file.sha).then(function(newSha){
         return Object.assign({}, res, { rooms: payload, changed: true, sha: newSha });
       }).catch(function(e){
@@ -3568,13 +3562,13 @@ function ghWriteWithRetry(path, mutate){
           attempt += 1;
           var wait = backoff[Math.min(attempt - 1, backoff.length - 1)];
           return new Promise(function(resolve){ setTimeout(resolve, wait); })
-            .then(function(){ return run(true); });
+            .then(function(){ return run(); });
         }
         throw e;
       });
     });
   }
-  return run(false);
+  return run();
 }
 
 /** Esc 键关闭弹层（详情 / 编辑），与 mask / 关闭按钮一致。 */
@@ -4166,15 +4160,19 @@ function renderSummary(sent){
   if(titleEl) titleEl.textContent = (freq === 'weekly' ? '本周摘要' : '今日摘要') + '（' + sum.rangeText + '）';
   if(textEl) textEl.textContent = sum.liveOnCount + ' 人开播 · ' + sum.newPostCount + ' 条新作';
   if(badgeEl){
-    if(sent){ badgeEl.textContent = '本周期已生成'; badgeEl.className = 'blm-summary-badge sent'; }
-    else { badgeEl.textContent = '本周期未生成'; badgeEl.className = 'blm-summary-badge pending'; }
+    var state = window.__summaryState || {};
+    if(state.requestId && state.requestId !== state.lastHandledRequestId){
+      badgeEl.textContent = state.lastFailedAt ? '发送失败，等待重试' : '已请求，等待推送';
+      badgeEl.className = 'blm-summary-badge pending';
+    } else if(sent){ badgeEl.textContent = '本周期已发送'; badgeEl.className = 'blm-summary-badge sent'; }
+    else { badgeEl.textContent = '本周期尚未发送'; badgeEl.className = 'blm-summary-badge pending'; }
   }
   card.style.display = 'block';
 }
 
 /**
  * ld() 内调用：载入摘要镜像，跨日/跨周且未生成则展示摘要卡。
- * 自动投递（无人值守）由未来 CI job 读 BLIVE_CONFIG.summary 完成，本波仅做前端展示+手动触发。
+ * CI 读取独立摘要配置并投递；lastSent 仅表示已确认发送成功。
  */
 function maybeShowSummary(){
   loadConfigMirror('summary_state.json','summaryStatus')
@@ -4212,69 +4210,49 @@ function copySummary(){
   }
 }
 
-/** 手动触发：写 summary_state.json 的 lastSent 标记本周期已生成（自动投递留给 CI）。 */
+/** 手动请求只写请求ID，成功回执由CI写入；重复点击复用未完成请求。 */
 async function requestPushSummary(){
   if(!getGhToken()){ toast('请先到「配置」页设置 Token', false); show('config'); return; }
   var now = Math.floor(Date.now() / 1000);
-  var st = window.__summaryState || { enabled: false, freq: 'daily', sendTime: '09:00' };
-  st.lastSent = now;
+  var requestId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
   try{
-    await ghWriteWithRetry('summary_state.json', function(){ return { rooms: st, changed: true }; });
-    window.__summaryState = st;
-    renderSummary(true);
-    toast('已请求推送，自动投递将由 CI 完成', true);
+    var saved = await ghWriteWithRetry('summary_state.json', function(remote){
+      var st = Object.assign({}, remote || {});
+      if(st.requestId && st.requestId !== st.lastHandledRequestId) return {rooms:st,changed:false};
+      // 若首次写入成功但响应丢失，重试不能再次创建已被CI完成的请求。
+      if(st.lastHandledRequestId === requestId) return {rooms:st,changed:false};
+      st.requestId = requestId;
+      st.requestedAt = now;
+      return {rooms:st,changed:true};
+    });
+    window.__summaryState = saved.rooms;
+    renderSummary((saved.rooms.lastSent || 0) >= computeSince(saved.rooms.freq || 'daily', bjNow()));
+    toast('请求已保存，等待下一轮监控投递（遵守静默和重试间隔）', true);
   }catch(err){
-    toast('标记失败：' + (err && err.message || err), false);
+    toast('请求失败：' + (err && err.message || err), false);
   }
 }
 
-/**
- * 保存「定时摘要」：写可读镜像 summary_state.json（前端拥有）；
- * 并尝试并入 BLIVE_CONFIG 加密写（需推送渠道已配，供 CI 自动投递消费）。
- */
+/** 保存摘要独立配置；保留最新回执与请求，不覆盖推送 Secret。 */
 async function saveSummaryConfig(){
   if(!getGhToken()){ toast('请先到「配置」页设置 Token', false); show('config'); return; }
   var cfg = buildSummaryConfig();
-  var st = {
-    enabled: cfg.enabled,
-    freq: cfg.freq,
-    sendTime: cfg.sendTime,
-    lastSent: (window.__summaryState && window.__summaryState.lastSent) || 0
-  };
   var stEl = document.getElementById('summaryStatus');
   try{
-    await ghWriteWithRetry('summary_state.json', function(){ return { rooms: st, changed: true }; });
-    window.__summaryState = st;
+    var saved = await ghWriteWithRetry('summary_state.json', function(remote){
+      return {rooms:Object.assign({},remote || {},{enabled:cfg.enabled,freq:cfg.freq,sendTime:cfg.sendTime}),changed:true};
+    });
+    window.__summaryState = saved.rooms;
   }catch(err){
-    toast('保存摘要镜像失败：' + (err && err.message || err), false);
+    toast('保存摘要设置失败：' + (err && err.message || err), false);
     return;
   }
-  // 尝试并入 BLIVE_CONFIG（加密写给 CI 自动投递消费）。推送渠道未配时不覆盖既有 Secret。
-  var pushCfg = buildPushConfig();
-  if(pushCfg){
-    try{
-      var full = pushCfg;
-      full.summary = cfg;
-      var json = JSON.stringify(full);
-      var base = ghBase();
-      var pkResp = await fetch(base + '/actions/secrets/public-key', {headers:{'Authorization':'Bearer '+getGhToken(),'Accept':'application/vnd.github+json'}});
-      if(!pkResp.ok) throw new Error('获取公钥失败 HTTP ' + pkResp.status);
-      var pk = await pkResp.json();
-      await sodium.ready;
-      var sealed = sodium.crypto_box_seal(new TextEncoder().encode(json), b64ToBytes(pk.key));
-      var putResp = await fetch(base + '/actions/secrets/BLIVE_CONFIG', {method:'PUT', headers:{'Authorization':'Bearer '+getGhToken(),'Accept':'application/vnd.github+json','Content-Type':'application/json'}, body: JSON.stringify({encrypted_value: bytesToB64(sealed), key_id: pk.key_id})});
-      if(!putResp.ok) throw new Error('写入 Secret 失败 HTTP ' + putResp.status);
-      if(stEl){ stEl.style.display='block'; stEl.style.color='var(--state-success)'; stEl.innerHTML='✅ 定时摘要已并入仓库 Secret（BLIVE_CONFIG.summary），下次监控运行即生效。'; }
-      toast('定时摘要已保存', true);
-    }catch(err){
-      if(stEl){ stEl.style.display='block'; stEl.style.color='var(--state-warning)'; stEl.innerHTML='⚠️ 摘要镜像已保存；但自动投递需配置推送渠道并写入 Secret：' + (err && err.message || err); }
-      toast('摘要镜像已保存（自动投递待配置推送）', true);
-    }
-  } else {
-    if(stEl){ stEl.style.display='block'; stEl.style.color='var(--state-warning)'; stEl.innerHTML='✅ 摘要镜像已保存（summary_state.json）。开启自动投递需在「推送渠道」配置后点「保存推送配置」。'; }
-    toast('摘要镜像已保存', true);
+  if(stEl){
+    stEl.style.display='block'; stEl.style.color='var(--state-success)';
+    stEl.textContent='✅ 定时摘要设置已保存，下次监控运行即生效；投递使用已有推送渠道。';
   }
-  renderSummary((st.lastSent || 0) >= computeSince(st.freq, bjNow()));
+  toast('定时摘要设置已保存', true);
+  renderSummary((saved.rooms.lastSent || 0) >= computeSince(saved.rooms.freq, bjNow()));
 }
 
 /* ---------------- B1：批量增删纯函数 ---------------- */
@@ -4892,7 +4870,7 @@ function renderSilenceHint(){
     el.className='blm-caption';
   }
 }
-/** 保存静默配置：写可读镜像 silence_state.json + 加密并入 BLIVE_CONFIG.silence。 */
+/** 静默独立保存；CI 读取此文件，不触碰完整推送 Secret。 */
 async function saveSilenceConfig(){
   if(!getGhToken()){ toast('请先到「配置」页设置 Token', false); show('config'); return; }
   var silence=buildSilenceConfig();
@@ -4904,16 +4882,10 @@ async function saveSilenceConfig(){
     toast('保存静默镜像失败：'+(err&&err.message||err), false);
     return;
   }
-  // 合并进 BLIVE_CONFIG 加密写（CI 推送前拦截依赖此）
-  var full;
-  var pushCfg=buildPushConfig();
-  if(pushCfg){ full=pushCfg; }
-  else { full={push:{}, silence:silence, channels:window.__channels||[], routes:window.__routes||[], templates:buildTemplateConfig()}; }
-  var ok=await _encryptSaveBlive(full, stEl);
   if(stEl){
     stEl.style.display='block';
-    if(ok){ stEl.style.color='var(--state-success)'; stEl.innerHTML='✅ 静默时段已保存（镜像 silence_state.json + 仓库 Secret BLIVE_CONFIG.silence），下次监控运行即生效。'; }
-    else { stEl.style.color='var(--state-warning)'; stEl.innerHTML='✅ 静默镜像已保存（silence_state.json）；但加密写入 Secret 失败，请检查 Token 或手动写入 BLIVE_CONFIG.silence。'; }
+    stEl.style.color='var(--state-success)';
+    stEl.textContent='✅ 静默时段已保存，下次监控运行即生效。';
   }
   renderSilenceHint();
   toast('静默配置已保存', true);

@@ -109,11 +109,23 @@ def room_enabled(room: Any) -> bool:
     return room.get("enabled", True) is not False
 
 
-def load_silence_cfg(raw_config: str) -> Dict[str, Any]:
-    """从 BLIVE_CONFIG 环境变量（JSON 字符串）解析静默配置。
+def load_silence_cfg(raw_config: str, path: Optional[str] = None) -> Dict[str, Any]:
+    """独立配置优先，文件缺失时兼容 BLIVE_CONFIG.silence。
 
-    无则返回 {}（不静默）。兼容旧式（无 silence 段 / 非法 JSON）。
+    显式提供但损坏的文件不能悄悄变为“不静默”，让任务报错供用户修正。
     """
+    if path and os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                silence = json.load(f)
+            clock = r"(?:[01]\d|2[0-3]):[0-5]\d"
+            if (not isinstance(silence, dict)
+                    or type(silence.get("enabled")) is not bool
+                    or any(not re.fullmatch(clock, str(silence.get(k, ""))) for k in ("start", "end"))):
+                raise ValueError("invalid fields")
+            return {k: silence[k] for k in ("enabled", "start", "end")}
+        except (OSError, ValueError) as exc:
+            raise ValueError("silence_state.json 配置无效，停止推送以避免绕过静默") from exc
     if not raw_config:
         return {}
     try:

@@ -214,6 +214,25 @@ def merge_history(local: list, remote: list) -> list:
     return merged
 
 
+def merge_summary_state(local: Dict, remote: Dict) -> Dict:
+    """网页拥有配置/请求，CI拥有发送回执；合并时各自保留最新进度。"""
+    merged = {**local, **remote}
+    latest = max((local, remote), key=lambda s: s.get("lastSent") or 0)
+    if latest.get("lastSent"):
+        merged["lastSent"] = latest["lastSent"]
+    if latest.get("lastHandledRequestId"):
+        merged["lastHandledRequestId"] = latest["lastHandledRequestId"]
+    failed = max((local, remote), key=lambda s: s.get("lastFailedAt") or 0)
+    if (failed.get("lastFailedAt") or 0) > (merged.get("lastSent") or 0):
+        for key in ("lastFailedAt", "lastFailedSince"):
+            if key in failed:
+                merged[key] = failed[key]
+    else:
+        for key in ("lastFailedAt", "lastFailedSince"):
+            merged.pop(key, None)
+    return merged
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="合并本地与远端状态文件")
     parser.add_argument("ref", help="远端 ref（如 origin/master）")
@@ -230,6 +249,7 @@ def main() -> int:
         ("post_tracking.json", merge_post_tracking, False),
         ("post_rooms.json", merge_post_rooms, True),
         ("history.json", merge_history, True),
+        ("summary_state.json", merge_summary_state, False),
     ]
 
     changed = False

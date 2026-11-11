@@ -53,6 +53,7 @@ STATUS_FILE = os.path.join(REPO_DIR, "status.json")
 HISTORY_FILE = os.path.join(REPO_DIR, "history.json")
 TRACKING_FILE = os.path.join(REPO_DIR, "tracking.json")
 ROOMS_FILE = os.path.join(REPO_DIR, "rooms.json")
+SILENCE_FILE = os.path.join(REPO_DIR, "silence_state.json")
 
 # 历史日志保留条数：统一引用 log_utils.HISTORY_MAX（500，唯一来源），不再各自定义。
 
@@ -102,8 +103,8 @@ def load_config() -> Dict[str, Any]:
     # 推送配置：多通道（serverchan/wecom/pushplus/bark/telegram），兼容旧 sendkey
     raw_config = os.environ.get("BLIVE_CONFIG", "{}")
     push_cfg = load_push_cfg(raw_config)
-    # A3 静默时段：从 BLIVE_CONFIG.silence 解析（无则 {}，不静默）
-    silence_cfg = load_silence_cfg(raw_config)
+    # 网页独立保存静默，避免为此重写推送凭据；无文件时兼容旧 Secret。
+    silence_cfg = load_silence_cfg(raw_config, SILENCE_FILE)
     # 完整配置（参与多通道路由 / 模板渲染）：供 dispatch_event 消费（A2/A4）
     cfg_all = json.loads(raw_config) if raw_config else {}
 
@@ -226,7 +227,7 @@ def _extract_douyin_from_render_data(html: str) -> Optional[Dict[str, Any]]:
             except (ValueError, TypeError):
                 continue
 
-            status = "live" if status_code_int == DOUYIN_STATUS_LIVE else "offline"
+            status = {DOUYIN_STATUS_LIVE: "live", DOUYIN_STATUS_OFFLINE: "offline"}.get(status_code_int, "error")
             return {
                 "status": status,
                 "title": title,
@@ -398,11 +399,11 @@ def fetch_douyin(web_rid: str) -> Dict[str, Any]:
         logger.debug("抖音策略3成功 (page_text): %s", web_rid)
         return result
 
-    # 所有策略都失败，默认返回离线状态
+    # 无法识别不是下播证据，保留上一轮可靠状态并等待恢复。
     logger.warning("抖音所有提取策略都失败: %s", web_rid)
     return {
-        "status": "offline",
-        "title": "",
+        "status": "error",
+        "title": "无法识别直播状态，可能遇到验证页或页面结构变化",
         "online": 0,
         "area": "",
         "nickname": nickname,
@@ -432,7 +433,7 @@ def should_push(prev_status: Optional[str], curr_status: str) -> bool:
     """
     if curr_status == "offline" or curr_status == "error":
         return False
-    if prev_status is None:
+    if prev_status in (None, "unknown"):
         return curr_status in ("live", "replay")
 
     # 只有从「离线」状态变为「直播/回放」才推送（error 状态不触发，避免检测失败导致反复推送）
@@ -451,6 +452,32 @@ def bili_status_on_batch_failure(prev_status: Optional[str]) -> str:
     避免把整批房间误标为 error（既污染历史，又因 error→live 不推送而漏报恢复开播）。
     """
     return prev_status or "unknown"
+
+
+def notification_due(t: Dict[str, Any], prev: Optional[str], current: str, now: datetime) -> bool:
+    """Pending delivery survives a CI cycle independently of observed live state."""
+    if current == "offline":
+        t.pop("pending_notification", None)
+        return False
+    if current not in ("live", "replay"):
+        return False
+    pending = t.get("pending_notification")
+    if pending and pending.get("status") != current:
+        t.pop("pending_notification", None)
+        pending = None
+    if should_push(prev, current) and not pending:
+        pending = {"status": current, "attempts": 0, "next_retry_at": 0}
+        t["pending_notification"] = pending
+    now_ts = now.replace(tzinfo=BEIJING_TZ).timestamp()
+    return bool(pending and now_ts >= pending.get("next_retry_at", 0))
+
+
+def mark_notification_attempt(t: Dict[str, Any], now: datetime) -> None:
+    """Back off 5/10/20/40/60 minutes across CI cycles, including exceptions."""
+    pending = t["pending_notification"]
+    attempts = min(int(pending.get("attempts", 0)) + 1, 5)
+    pending["attempts"] = attempts
+    pending["next_retry_at"] = now.replace(tzinfo=BEIJING_TZ).timestamp() + min(300 * 2 ** (attempts - 1), 3600)
 
 
 def format_push_title(name: str, result: Dict[str, Any]) -> str:
@@ -568,13 +595,22 @@ def main() -> None:
     # A3 静默（仅用于推送前拦截；不影响状态抓取）
     silence_cfg = cfg.get("silence", {})
 
+    tracking: Dict[str, Dict[str, Any]] = load_json_file(TRACKING_FILE, {})
+    active = {f"{r.get('platform', 'bilibili')}_{r.get('id', '')}" for r in rooms if room_enabled(r)}
+    cleared = False
+    for key, item in tracking.items():
+        if key not in active and "pending_notification" in item:
+            item.pop("pending_notification")
+            cleared = True
+    if cleared:
+        save_json_file(TRACKING_FILE, tracking)
+
     if not rooms:
         logger.info("没有配置监控房间")
         return
 
     # 加载之前的状态
     prev_state: Dict[str, str] = load_json_file(STATE_FILE, {})
-    tracking: Dict[str, Dict[str, Any]] = load_json_file(TRACKING_FILE, {})
 
     # 加载上一次写入 status.json 的完整房间信息，用于在 B站批量接口整体失败时
     # 继承 title/online/area，避免看板在故障期间把房间信息清空。
@@ -636,11 +672,12 @@ def main() -> None:
                             "title": prev_full.get("title", ""),
                             "online": prev_full.get("online", 0),
                             "area": prev_full.get("area", ""),
+                            "detection_failed": True,
                         }
                     else:
                         raise Exception(f"批量接口未返回房间 {rid} 的数据")
                 else:
-                    status_code = d.get("live_status", 0)
+                    status_code = d.get("live_status")
                     result = {
                         "status": BILIBILI_STATUS_MAP.get(status_code, "unknown"),
                         "title": d.get("title", ""),
@@ -679,8 +716,12 @@ def main() -> None:
             result.get("title", "")[:30],
         )
 
-        # 更新状态
-        new_state[key] = result["status"]
+        # state.json 是最后可靠状态；status.json 单独展示本轮检测结果。
+        prev_status = prev_state.get(key)
+        if prev_status not in (None, "live", "offline", "replay"):
+            prev_status = "unknown"  # 兼容升级前遗留的 error 基线。
+        reliable = result["status"] in ("live", "offline", "replay") and not result.get("detection_failed")
+        new_state[key] = result["status"] if reliable else (prev_status or "unknown")
 
         # 开播追踪
         t = tracking.get(key, {})
@@ -693,7 +734,7 @@ def main() -> None:
                 live_start_str = now_str
             else:
                 live_duration = calculate_duration(live_start_str, now)
-        elif live_start_str:
+        elif reliable and live_start_str:
             # 刚下播，记录上次直播信息
             last_live = live_start_str
             t["last_duration"] = calculate_duration(live_start_str, now)
@@ -724,10 +765,9 @@ def main() -> None:
         status_list.append(status_item)
 
         # 状态变化检测
-        prev_status = prev_state.get(key)
         changed = prev_status is not None and prev_status != result["status"]
 
-        if should_push(prev_status, result["status"]):
+        if reliable and notification_due(t, prev_status, result["status"], now):
             dkey = f"live:{key}"
             if dedup_should_notify(dkey):
                 newly_live.append(
@@ -747,6 +787,7 @@ def main() -> None:
                     "[%s] 去重跳过：开播通知 %s 在冷却期内已发送", display_name, dkey
                 )
                 push_result = "deduped"
+                t.pop("pending_notification", None)
 
         # 记录日志
         entry_type = type_from_status(result["status"])
@@ -808,6 +849,9 @@ def main() -> None:
                 group_ctx = g["ctx"]
                 pcfg = g["pcfg"]
 
+                for s in group_rooms:
+                    mark_notification_attempt(tracking[f"{s['platform']}_{s['rid']}"], now)
+
                 # 未配置通道：等价 legacy 无 push 分支（info 跳过 + no_sendkey，不刷 error）
                 if not pcfg or not pcfg.get("type"):
                     logger.info(
@@ -835,9 +879,10 @@ def main() -> None:
                 logger.info("推送%s: %s", "成功" if res.ok else "失败", title)
 
                 if res.ok:
-                    # 推送成功后才记录去重（失败则不标记，下一轮可补推；房间级去重不变）
+                    # 仅确认成功后清理待发记录，失败按 next_retry_at 跨轮重试。
                     for s in group_rooms:
                         dedup_record(f"live:{s['platform']}_{s['rid']}")
+                        tracking[f"{s['platform']}_{s['rid']}"].pop("pending_notification", None)
                         for le in queued_index.get(f"{s['platform']}_{s['rid']}", []):
                             le["push"] = "pushed_ok"
                 elif res.last_error == "config: empty push_cfg":

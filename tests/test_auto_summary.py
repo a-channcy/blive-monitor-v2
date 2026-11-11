@@ -344,7 +344,7 @@ def test_integration_deliver_writes_state(tmp_path, monkeypatch):
     assert "lastFailedAt" not in state       # 成功清除冷却
     assert state["enabled"] is True          # 前端字段被保留
     assert state["freq"] == "daily"
-    assert state["sendTime"] == "00:00"
+    assert state["sendTime"] == "09:00"  # 独立网页配置优先，CI 不再用旧 Secret 覆盖它
 
 
 def test_integration_fail_no_lastSent(tmp_path, monkeypatch):

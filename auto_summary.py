@@ -148,6 +148,11 @@ def format_summary(summary: Dict[str, Any], freq: str, range_text: str) -> Tuple
     return title, desp
 
 
+def pending_request(state: Dict[str, Any]) -> Optional[str]:
+    request_id = state.get("requestId")
+    return request_id if isinstance(request_id, str) and request_id and request_id != state.get("lastHandledRequestId") else None
+
+
 def should_deliver(cfg: Dict[str, Any], now_bj: datetime, state: Dict[str, Any]) -> Tuple[bool, str]:
     """四态 gate 判定：是否应当投递本周期摘要。
 
@@ -168,7 +173,8 @@ def should_deliver(cfg: Dict[str, Any], now_bj: datetime, state: Dict[str, Any])
     Returns:
         (should_deliver: bool, reason: str)。
     """
-    if cfg.get("enabled") != True:  # noqa: E712  (显式与 True 比较，语义：未启用)
+    manual = pending_request(state)
+    if not manual and cfg.get("enabled") != True:  # noqa: E712
         return (False, "disabled")
 
     freq = cfg.get("freq", "daily")
@@ -184,12 +190,12 @@ def should_deliver(cfg: Dict[str, Any], now_bj: datetime, state: Dict[str, Any])
     except Exception:
         # 解析失败：退化为当日午夜（即视为已到，不拦截）
         send_at = now_bj.replace(hour=0, minute=0, second=0, microsecond=0)
-    if now_bj < send_at:
+    if not manual and now_bj < send_at:
         return (False, "too_early")
 
     # 3. 本周期是否已投（防重投）
     last_sent = state.get("lastSent") or cfg.get("lastSent") or 0
-    if last_sent >= since:
+    if not manual and last_sent >= since:
         return (False, "already_sent")
 
     # 4. 同周期失败冷却（防刷屏）；跨周期(lastFailedSince!=since)不生效
@@ -242,7 +248,13 @@ def main() -> None:
         summary_cfg = cfg_all.get("summary") or {}
 
         state = load_summary_state(STATE_FILENAME)
+        # 网页只更新非敏感设置；缺失字段继续兼容旧 Secret。
+        summary_cfg = {**summary_cfg, **{k: state[k] for k in ("enabled", "freq", "sendTime") if k in state}}
         now_bj = bjnow()
+        silence = common.load_silence_cfg(raw, "silence_state.json")
+        if common.should_skip_by_silence(now_bj, silence):
+            logging.info("摘要处于静默时段，保留待投递请求")
+            sys.exit(0)
         freq = summary_cfg.get("freq", "daily")
         since = compute_since(freq, now_bj)
 
@@ -264,16 +276,17 @@ def main() -> None:
         summary = compute_summary(hist, since)
         title, desp = format_summary(summary, freq, summary["rangeText"])
 
-        res = push_utils.dispatch_event(cfg_all, {"event": "summary"}, title, desp)
+        try:
+            res = push_utils.dispatch_event(cfg_all, {"event": "summary"}, title, desp)
+        except Exception as exc:
+            res = push_utils.SendResult(ok=False, attempts=1, last_error=str(exc), status_code=None)
         if res.ok:
             # 成功：回写 lastSent，并清除失败冷却字段
             new_state = {
-                **state,
-                "enabled": summary_cfg.get("enabled"),
-                "freq": summary_cfg.get("freq"),
-                "sendTime": summary_cfg.get("sendTime"),
                 "lastSent": int(time.time()),
             }
+            if pending_request(state):
+                new_state["lastHandledRequestId"] = state["requestId"]
             save_summary_state(STATE_FILENAME, new_state, remove=["lastFailedAt", "lastFailedSince"])
             logging.info("摘要已投递（title=%s）", title)
         else:
@@ -281,7 +294,6 @@ def main() -> None:
             save_summary_state(
                 STATE_FILENAME,
                 {
-                    **state,
                     "lastFailedAt": int(time.time()),
                     "lastFailedSince": since,
                 },
@@ -340,6 +352,8 @@ def run_summary(*, cfg_all: Dict[str, Any], persist: Any, now: Optional[datetime
             "sendTime": summary_cfg.get("sendTime"),
             "lastSent": int(time.time()),
         }
+        if pending_request(state):
+            new_state["lastHandledRequestId"] = state["requestId"]
         persist.set_summary_state(new_state, remove=["lastFailedAt", "lastFailedSince"])
         logging.info("摘要已投递（title=%s）", title)
     else:

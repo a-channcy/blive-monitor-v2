@@ -21,3 +21,12 @@ def _isolate_dedup_ledger(tmp_path, monkeypatch):
     import notify_dedup
     monkeypatch.setattr(notify_dedup, "LEDGER_FILE", str(tmp_path / "notify_dedup.json"))
 
+
+@pytest.fixture(autouse=True)
+def _isolate_silence_config(tmp_path, monkeypatch):
+    """CI configuration tests must never depend on the user's real silence file."""
+    import check_status
+    import check_new_posts
+    for module in (check_status, check_new_posts):
+        monkeypatch.setattr(module, "SILENCE_FILE", str(tmp_path / "silence_state.json"))
+

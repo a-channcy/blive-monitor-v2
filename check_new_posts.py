@@ -63,6 +63,7 @@ import state_prune
 
 # 文件路径（与本脚本同目录）
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+SILENCE_FILE = os.path.join(REPO_DIR, "silence_state.json")
 CONFIG_FILE = os.path.join(REPO_DIR, "post_rooms.json")      # 作品监控的抖音号列表（独立）
 TRACKING_FILE = os.path.join(REPO_DIR, "post_tracking.json")  # 作品监控状态（独立）
 HISTORY_FILE = os.path.join(REPO_DIR, "history.json")         # 统一日志（与 check_status 同文件）
@@ -639,7 +640,7 @@ def main() -> None:
     # 完整配置（参与多通道路由）：供 dispatch_event 消费（A2）；legacy 单通道下等价于仅含 push 段
     cfg_all = json.loads(raw_config) if raw_config else {}
     # A3 静默时段：从 BLIVE_CONFIG.silence 解析（无则 {}，不静默）
-    silence_cfg = load_silence_cfg(raw_config)
+    silence_cfg = load_silence_cfg(raw_config, SILENCE_FILE)
 
     # 加载作品监控专属的抖音号列表
     post_rooms: List[Dict[str, str]] = load_json_file(CONFIG_FILE, [])

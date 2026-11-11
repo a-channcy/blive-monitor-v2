@@ -41,7 +41,7 @@ jobs:
           node-version: '22'
 
       - name: Frontend data regression
-        run: node --test tests/frontend_data.test.cjs
+        run: node --test tests/*.test.cjs
 
       - name: Run pytest
         run: python -m pytest tests/ -q
