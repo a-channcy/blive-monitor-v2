@@ -35,7 +35,7 @@ import common  # A2/A4 统一路由：common.resolve_channel / common.render_tem
 # 多通道推送（与 check_new_posts.py 共用 push_utils.py）
 from push_utils import load_push_cfg, dispatch_event, channel_to_push_cfg
 # 通知去重账本：与状态持久化解耦的独立防线，杜绝重复推送
-from notify_dedup import should_notify as dedup_should_notify, record as dedup_record, prune as dedup_prune
+from notify_dedup import should_notify as dedup_should_notify, record as dedup_record, prune as dedup_prune, sync_from_remote as dedup_sync_from_remote
 # 横切模块：运行时日志 + history 读写/上限（HISTORY_MAX 唯一来源）
 from log_utils import (
     HISTORY_MAX, init_runtime_logging, load_history, append_history,
@@ -583,6 +583,62 @@ def calculate_duration(start_str: str, now_dt: datetime) -> str:
         return ""
 
 
+# Five-minute polling tolerates up to three intervals. Longer gaps cannot
+# establish that the same broadcast continued. This is not a duration cap.
+MAX_LIVE_OBSERVATION_GAP_SECONDS = 15 * 60
+
+
+def _tracking_time(value: Any) -> Optional[datetime]:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def update_live_tracking(t: Dict[str, Any], status: str, now: datetime, *, reliable: bool) -> str:
+    """Track observed duration; an empty value means unknown, never zero-filled.
+
+    The end is the last confirmed live observation, not the later discovery
+    of an offline room. Gaps between live observations invalidate continuity.
+    Historical records without evidence remain unknown until a new session.
+    """
+    if not reliable:
+        return ""
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    start_str = t.get("live_start", "")
+    start = _tracking_time(start_str)
+    last_seen = _tracking_time(t.get("live_last_seen"))
+    duration = ""
+    if status == "live":
+        if not start_str:
+            start_str = now_str
+            t["live_duration_uncertain"] = False
+        elif (start is None or last_seen is None or not start <= last_seen <= now
+              or (now - last_seen).total_seconds() > MAX_LIVE_OBSERVATION_GAP_SECONDS):
+            t["live_duration_uncertain"] = True
+        if not t.get("live_duration_uncertain"):
+            duration = calculate_duration(start_str, now)
+        t["live_start"] = start_str
+        t["live_last_seen"] = now_str
+        t["duration_session"] = {"start": start_str, "last_seen": now_str, "ended": False,
+                                 "seconds": int((now - _tracking_time(start_str)).total_seconds())
+                                 if duration else None}
+    elif status in ("offline", "replay") and start_str:
+        t["last_live"] = start_str
+        valid = start is not None and last_seen is not None and start <= last_seen <= now
+        t["last_duration"] = (calculate_duration(start_str, last_seen)
+                              if valid and not t.get("live_duration_uncertain") else "")
+        t["duration_session"] = {"start": start_str, "last_seen": t.get("live_last_seen"),
+                                 "ended": True, "seconds": int((last_seen - start).total_seconds())
+                                 if t["last_duration"] else None}
+        t["live_start"] = ""
+        # Empty values also clear evidence in the DB persistence facade's merge.
+        t["live_last_seen"] = ""
+        t["live_duration_uncertain"] = False
+    t["live_duration"] = duration
+    return duration
+
+
 # ==================== 主逻辑 ====================
 
 def main() -> None:
@@ -629,6 +685,7 @@ def main() -> None:
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
     logger.info("开始检测 %d 个房间...", len(rooms))
+    dedup_sync_from_remote()
 
     # Step 1: 批量查询所有 B站房间
     bili_rooms = [(r, i) for i, r in enumerate(rooms) if r.get("platform", "bilibili") == "bilibili"]
@@ -725,25 +782,8 @@ def main() -> None:
 
         # 开播追踪
         t = tracking.get(key, {})
+        live_duration = update_live_tracking(t, result["status"], now, reliable=reliable)
         last_live = t.get("last_live", "")
-        live_start_str = t.get("live_start", "")
-        live_duration = ""
-
-        if result["status"] == "live":
-            if not live_start_str:
-                live_start_str = now_str
-            else:
-                live_duration = calculate_duration(live_start_str, now)
-        elif reliable and live_start_str:
-            # 刚下播，记录上次直播信息
-            last_live = live_start_str
-            t["last_duration"] = calculate_duration(live_start_str, now)
-            live_start_str = ""
-
-        t["last_live"] = last_live
-        t["live_start"] = live_start_str
-        if live_duration:
-            t["live_duration"] = live_duration
         if platform == "douyin" and result.get("sec_uid"):
             t["sec_uid"] = result["sec_uid"]
         tracking[key] = t
@@ -761,6 +801,7 @@ def main() -> None:
             "sec_uid": result.get("sec_uid", ""),
             "last_live": last_live,
             "live_duration": live_duration,
+            "duration_session": t.get("duration_session"),
         }
         status_list.append(status_item)
 
@@ -809,6 +850,7 @@ def main() -> None:
                 "level": level_from_type(entry_type),
                 "detail": "",
                 "account": rid,
+                "duration_session": t.get("duration_session"),
             }
         )
 
@@ -1089,6 +1131,7 @@ def run_live_check(*, cfg_all: Dict[str, Any], persist: Any, now: Optional[datet
                             "title": "",
                             "online": 0,
                             "area": "",
+                            "detection_failed": True,
                         }
                     else:
                         raise Exception(f"批量接口未返回房间 {rid} 的数据")
@@ -1117,22 +1160,9 @@ def run_live_check(*, cfg_all: Dict[str, Any], persist: Any, now: Optional[datet
 
         # 开播追踪基线
         t = tracking.get(key, {})
+        reliable = result["status"] in ("live", "offline", "replay") and not result.get("detection_failed")
+        live_duration = update_live_tracking(t, result["status"], now, reliable=reliable)
         last_live = t.get("last_live", "")
-        live_start_str = t.get("live_start", "")
-        live_duration = ""
-        if result["status"] == "live":
-            if not live_start_str:
-                live_start_str = now_str
-            else:
-                live_duration = calculate_duration(live_start_str, now)
-        elif live_start_str:
-            last_live = live_start_str
-            t["last_duration"] = calculate_duration(live_start_str, now)
-            live_start_str = ""
-        t["last_live"] = last_live
-        t["live_start"] = live_start_str
-        if live_duration:
-            t["live_duration"] = live_duration
         if platform == "douyin" and result.get("sec_uid"):
             t["sec_uid"] = result["sec_uid"]
         tracking[key] = t
@@ -1149,6 +1179,7 @@ def run_live_check(*, cfg_all: Dict[str, Any], persist: Any, now: Optional[datet
             "sec_uid": result.get("sec_uid", ""),
             "last_live": last_live,
             "live_duration": live_duration,
+            "duration_session": t.get("duration_session"),
         }
 
         prev_status = prev_state.get(key)
@@ -1184,6 +1215,8 @@ def run_live_check(*, cfg_all: Dict[str, Any], persist: Any, now: Optional[datet
             "level": level_from_type(entry_type),
             "detail": "",
             "account": rid,
+            "duration_session": t.get("duration_session"),
+            "payload": {"duration_session": t.get("duration_session")},
         }
         log_entries.append(entry)
         rows.append({

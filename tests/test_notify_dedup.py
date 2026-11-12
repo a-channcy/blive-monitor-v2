@@ -71,3 +71,13 @@ def test_corrupt_ledger_treated_as_allowed(ledger):
     ledger.write_text("{not valid json", encoding="utf-8")
     # 不应抛异常，且视为未记录 → 允许推送
     assert nd.should_notify("live:x:1") is True
+
+
+def test_capacity_pruning_never_forgets_permanent_posts(ledger, monkeypatch):
+    monkeypatch.setattr(nd, 'MAX_ENTRIES', 2)
+    for i in range(3):
+        nd.record(f'post:author:{i}', now=i)
+    nd.record('live:fresh', now=100)
+    nd.prune(now=101)
+    for i in range(3):
+        assert not nd.should_notify(f'post:author:{i}', cooldown=nd.PERMANENT, now=10**9)

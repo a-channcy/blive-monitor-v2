@@ -215,9 +215,29 @@ blive-monitor/
 
 ## 🧪 本地开发 / 测试
 
+### 监控可靠性约定
+
+- **时长按观测结算**：下播时使用最后一次可靠在线时间，接口失败不刷新在线证据。
+  两次在线观测间隔超过 15 分钟，或旧记录缺少证据时，该场次时长记为未知；连续
+  观测超过 24 小时仍正常统计。页面只汇总已确认时长，不随墙上时钟继续累加；旧历史
+  不改写，证据不足部分明确提示，CSV 的「时长说明」列同步标注。
+- **去重账本独立回写**：检测前读取远端账本，通知成功后通过 Contents API 立即尽力
+  保存，再由原 Git 持久化兜底。直播按最近成功时间合并，作品记录永久保留。两条
+  保存链路同时失败仍可能重复通知，因此监控工作流继续串行运行。
+  检测步骤使用现有 `GITHUB_TOKEN` 与 `contents: write`，`DEDUP_BRANCH` 固定为
+  `main`；本地无 Token 时只操作本地账本，`DEDUP_PUSH_REMOTE=0` 可关闭即时回写。
+- **任务防堵塞**：检测 job 最长运行 30 分钟；独立的 `reaper.yml` 每 15 分钟检查
+  `main` 分支的 `check.yml`，对等待超过 20 分钟的未启动任务分页查询、取消前复查，
+  每次最多请求取消 5 个。运行中的任务不强制取消，交给 job 超时处理；Pages 使用
+  独立并发组。看门狗需要 `contents: read`、`actions: write`，失败单独显示，不阻塞检测。
+  手动执行「清理卡住的监控任务」默认 `dry_run=true`，只检查；定时执行会实际取消符合条件的任务。
+
+### 回归命令
+
 ```bash
 pip install -r requirements-dev.txt     # 安装 pytest
-python -m pytest -q                      # 回归测试（push_utils / check_status / check_new_posts / common）
+python -m pytest tests/ -q               # 使用项目虚拟环境及已安装的运行依赖
+node --test tests/*.test.cjs             # 页面配置、数据读取与时长统计
 
 # 本地跑一次检测
 ./run.sh once        # 仅直播状态

@@ -3,7 +3,7 @@
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -101,6 +101,31 @@ def test_live_wiring_persists_and_pushes(sched_env, monkeypatch):
     assert room.current_title == "M"
     assert room.online == 5
     assert len(calls) >= 1  # 开播推送已触发
+
+
+def test_backend_keeps_duration_evidence_through_failure_and_offline(sched_env, monkeypatch):
+    import check_status
+    pers = Persistence()
+    pers.upsert_room({'platform': 'mocklive', 'external_id': '777', 'kind': 'live', 'name': 'M'})
+    reg = AdapterRegistry()
+    adapter = MockLiveAdapter()
+    reg.register(adapter)
+    state = ['live']
+    def fetch(room_id):
+        if state[0] == 'error':
+            raise RuntimeError('offline network')
+        return RoomModel(platform='mocklive', room_id=room_id, live_status=state[0] == 'live')
+    monkeypatch.setattr(adapter, 'fetch_room_status', fetch)
+    now = datetime(2026, 11, 12, 12)
+    for minutes, status in [(0, 'live'), (5, 'live'), (60, 'error'), (65, 'offline')]:
+        state[0] = status
+        check_status.run_live_check(cfg_all={}, persist=LivePersist(), now=now + timedelta(minutes=minutes), adapters=reg)
+    room = pers.get_room_by_key('mocklive', '777', 'live')
+    assert room.live_duration == ''
+    assert room.meta['last_duration'] == '5min'
+    event = pers.list_events(limit=1)[0]
+    assert event.payload['duration_session']['seconds'] == 300
+    assert event.payload['duration_session']['ended'] is True
 
 
 def test_post_wiring_persists_and_pushes(sched_env, monkeypatch):

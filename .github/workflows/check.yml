@@ -22,6 +22,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # 作品监控总开关：设为 "true" 启用；列表（post_rooms.json）为空时整段跳过，不浪费资源
     env:
       ENABLE_POST_CHECK: "false"
@@ -60,6 +61,8 @@ jobs:
       # 运行直播检测
       - name: Run check
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEDUP_BRANCH: main
           BLIVE_CONFIG: ${{ secrets.BLIVE_CONFIG }}
         run: python3 check_status.py
 
@@ -67,6 +70,8 @@ jobs:
       - name: Check new posts
         if: ${{ steps.postlist.outputs.enabled == 'true' }}
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEDUP_BRANCH: main
           BLIVE_CONFIG: ${{ secrets.BLIVE_CONFIG }}
           DOUYIN_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
           ENABLE_POST_CHECK: "true"

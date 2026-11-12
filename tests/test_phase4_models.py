@@ -112,6 +112,14 @@ def test_set_room_status_writes_columns(tmp_db):
     assert room.last_live_at == "2024-01-01 00:00:00"
 
 
+def test_unknown_duration_clears_previous_display_value(tmp_db):
+    pers = Persistence()
+    kwargs = dict(platform='bilibili', external_id='123', kind='live', name='test')
+    pers.set_room_status(**kwargs, status_item={'status': 'live', 'live_duration': '10min'})
+    pers.set_room_status(**kwargs, status_item={'status': 'live', 'live_duration': ''})
+    assert pers.get_room_by_key('bilibili', '123', 'live').live_duration == ''
+
+
 def test_events_history_write_and_query(tmp_db):
     pers = Persistence()
     pers.append_event(

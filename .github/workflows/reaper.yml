@@ -1,0 +1,35 @@
+name: 清理卡住的监控任务
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 只检查，不取消任务
+        type: boolean
+        default: true
+
+concurrency:
+  group: monitor-reaper
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  reap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REAP_TARGET_WORKFLOW: check.yml
+      REAP_TARGET_BRANCH: main
+      REAP_STUCK_MINUTES: '20'
+      REAP_MAX_CANCEL: '5'
+      REAP_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 检查并清理超时排队任务
+        run: python3 tools/reap_stuck_runs.py

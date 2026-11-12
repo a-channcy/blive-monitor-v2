@@ -3164,96 +3164,62 @@ function computeLiveDuration(hist, key, opts){
   opts = opts || {};
   var now = opts.now || bjNow();
   var last30ms = (opts.last30Days != null ? opts.last30Days : 30) * 86400000;
-  var events = (hist || []).filter(function(l){
-    var t = l.type || l.status;
-    return t === 'live_on' || t === 'live_off';
-  }).filter(function(l){ return roomKeyOf(l) === key; })
-    .slice().sort(function(a, b){ return (a.time || '') < (b.time || '') ? -1 : ((a.time || '') > (b.time || '') ? 1 : 0); });
-
-  var sessions = [], stack = [];
-  for(var i = 0; i < events.length; i++){
-    var ev = events[i];
-    var tp = ev.type || ev.status;
-    if(tp === 'live_on'){
-      stack.push({ startSec: parseBeijing(ev.time) });
-    } else if(tp === 'live_off'){
-      var on = stack.pop();
-      if(on && on.startSec != null){
-        var endSec = parseBeijing(ev.time);
-        if(endSec >= on.startSec){
-          sessions.push({ startSec: on.startSec, endSec: endSec, durSec: Math.round((endSec - on.startSec) / 1000), ongoing: false });
-        }
+  var snapshots = Object.create(null), legacyUnknown = false;
+  var entries = (hist || []).slice();
+  if(typeof stat !== 'undefined' && stat && Array.isArray(stat.rooms)) entries = entries.concat(stat.rooms);
+  entries.filter(function(ev){ return roomKeyOf(ev) === key; })
+    .sort(function(a,b){ return String(a.time || '').localeCompare(String(b.time || '')); })
+    .forEach(function(ev){
+      var evidence = ev.duration_session;
+      if(evidence && typeof evidence.start === 'string'){
+        snapshots[evidence.start] = evidence;
+      }else if((ev.type || ev.status) === 'live_on' || (ev.type || ev.status) === 'live_off'){
+        legacyUnknown = true;
       }
+    });
+  var sessions = [], unknownCount = 0, ongoing = false;
+  Object.keys(snapshots).forEach(function(start){
+    var ev = snapshots[start], startMs = parseBeijing(start);
+    if(!ev.ended) ongoing = true;
+    if(typeof ev.seconds !== 'number' || !Number.isFinite(ev.seconds) || ev.seconds < 0 || startMs == null){
+      unknownCount++; return;
     }
-  }
-  // 栈底剩余未配对 live_on => 进行中（endSec=现在）
-  var ongoing = false;
-  for(var j = 0; j < stack.length; j++){
-    var s0 = stack[j].startSec;
-    if(s0 != null){
-      var e1 = now.getTime();
-      sessions.push({ startSec: s0, endSec: e1, durSec: Math.max(0, Math.round((e1 - s0) / 1000)), ongoing: true });
-      ongoing = true;
-    }
-  }
-
-  var totalSec = 0, completedSec = 0, completedCount = 0, last30Sec = 0;
-  for(var k = 0; k < sessions.length; k++){
-    var ss = sessions[k];
+    sessions.push({startSec:startMs, endSec:parseBeijing(ev.last_seen), durSec:ev.seconds, ongoing:!ev.ended});
+  });
+  var totalSec=0, completedSec=0, completedCount=0, last30Sec=0;
+  sessions.forEach(function(ss){
     totalSec += ss.durSec;
-    if(ss.ongoing){
-      // 进行中不计入均值，但计入累计与近30天（若起始在近30天内）
-    } else {
-      completedSec += ss.durSec;
-      completedCount += 1;
-    }
-    if(ss.startSec != null && (now.getTime() - ss.startSec) <= last30ms){
-      last30Sec += ss.durSec;
-    }
-  }
-  return {
-    totalSec: totalSec,
-    avgSec: completedCount ? Math.round(completedSec / completedCount) : 0,
-    last30Sec: last30Sec,
-    completedSec: completedSec,
-    completedCount: completedCount,
-    sessionCount: sessions.length,
-    ongoing: ongoing,
-    sessions: sessions
-  };
+    if(!ss.ongoing){ completedSec += ss.durSec; completedCount++; }
+    if(now.getTime() - ss.startSec <= last30ms) last30Sec += ss.durSec;
+  });
+  return {totalSec:totalSec, avgSec:completedCount ? Math.round(completedSec/completedCount) : 0,
+    last30Sec:last30Sec, completedSec:completedSec, completedCount:completedCount,
+    sessionCount:sessions.length+unknownCount, ongoing:ongoing, sessions:sessions,
+    unknownCount:unknownCount, legacyUnknown:legacyUnknown};
 }
 
-/**
- * 跨所有房间的开播时长聚合（供仪表盘 kpiDuration）。
- * 累计 = 各房间总和（含进行中）；平均 = 全部已完成场次均值；近30天 = 全部房间近30天之和。
- */
+/** Aggregate only durations backed by observations; never extrapolate to now. */
 function computeLiveDurationAll(hist){
-  var keySet = {};
-  (hist || []).forEach(function(l){
-    var t = l.type || l.status;
-    if(t === 'live_on' || t === 'live_off') keySet[roomKeyOf(l)] = true;
+  var keySet = Object.create(null), entries = (hist || []).slice();
+  if(typeof stat !== 'undefined' && stat && Array.isArray(stat.rooms)) entries = entries.concat(stat.rooms);
+  entries.forEach(function(ev){
+    if(ev.duration_session || (ev.type || ev.status) === 'live_on' || (ev.type || ev.status) === 'live_off') keySet[roomKeyOf(ev)] = true;
   });
-  var totalSec = 0, last30Sec = 0, completedSec = 0, completedCount = 0, ongoing = false, sessionCount = 0;
-  for(var key in keySet){
-    if(!Object.prototype.hasOwnProperty.call(keySet, key)) continue;
-    var d = computeLiveDuration(hist, key);
-    totalSec += d.totalSec;
-    last30Sec += d.last30Sec;
-    completedSec += d.completedSec;
-    completedCount += d.completedCount;
-    sessionCount += d.sessionCount;
-    if(d.ongoing) ongoing = true;
-  }
-  return {
-    totalSec: totalSec,
-    avgSec: completedCount ? Math.round(completedSec / completedCount) : 0,
-    last30Sec: last30Sec,
-    completedSec: completedSec,
-    completedCount: completedCount,
-    sessionCount: sessionCount,
-    ongoing: ongoing,
-    sessions: []
-  };
+  var totalSec=0, last30Sec=0, completedSec=0, completedCount=0, sessionCount=0, unknownCount=0;
+  var ongoing=false, legacyUnknown=false;
+  Object.keys(keySet).forEach(function(key){
+    var d=computeLiveDuration(hist,key);
+    totalSec+=d.totalSec; last30Sec+=d.last30Sec; completedSec+=d.completedSec;
+    completedCount+=d.completedCount; sessionCount+=d.sessionCount; unknownCount+=d.unknownCount;
+    ongoing=ongoing||d.ongoing; legacyUnknown=legacyUnknown||d.legacyUnknown;
+  });
+  return {totalSec:totalSec, avgSec:completedCount ? Math.round(completedSec/completedCount) : 0,
+    last30Sec:last30Sec, completedSec:completedSec, completedCount:completedCount,
+    sessionCount:sessionCount, ongoing:ongoing, sessions:[], unknownCount:unknownCount, legacyUnknown:legacyUnknown};
+}
+
+function durationEvidenceNote(d){
+  return d.unknownCount || d.legacyUnknown ? '<div class="blm-chart-note">部分时长未知：监控存在空档或旧记录证据不足，仅汇总已确认时长。</div>' : '';
 }
 
 /** 渲染仪表盘 kpiDuration 卡片（累计 / 平均 / 近30天；有进行中标注「·进行中」）。 */
@@ -3268,7 +3234,7 @@ function renderDurationCard(){
       + '</span></div>'
     + '<div class="blm-duration-item"><span class="dk">平均(已完成)</span><span class="dv">' + e(fmtDuration(d.avgSec)) + '</span></div>'
     + '<div class="blm-duration-item"><span class="dk">近30天</span><span class="dv">' + e(fmtDuration(d.last30Sec)) + '</span></div>';
-  el.innerHTML = html;
+  el.innerHTML = html + durationEvidenceNote(d);
 }
 
 /* ---------- C2 更长趋势 ---------- */
@@ -3368,7 +3334,7 @@ function renderRoomDetail(key){
     + '<div><div class="dk">平均(已完成)</div><div class="dv">' + e(fmtDuration(dur.avgSec)) + '</div></div>'
     + '<div><div class="dk">近30天</div><div class="dv">' + e(fmtDuration(dur.last30Sec)) + '</div></div>'
     + '<div><div class="dk">场次</div><div class="dv">' + dur.sessionCount + '</div></div>'
-    + '</div></div>';
+    + '</div>' + durationEvidenceNote(dur) + '</div>';
 
   // 近期时间线（复用既有 .blm-log-item / .blm-log-dot / .blm-log-content 设计系统）
   var hr = (hist || []).filter(function(l){ return roomKeyOf(l) === key; });
@@ -3424,7 +3390,7 @@ function exportReport(format){
   if(format !== 'csv') return; // PNG 留后续波次
   var histData = hist || [];
   var rows = [];
-  var header = ['name','platform','id','tags','enabled','累计时长秒','平均时长秒','近30天时长秒','liveOn7','newPost7','liveOn30','newPost30','status'];
+  var header = ['name','platform','id','tags','enabled','累计时长秒','平均时长秒','近30天时长秒','liveOn7','newPost7','liveOn30','newPost30','status','时长说明'];
   rows.push(header.join(','));
 
   function statusOf(platform, id){
@@ -3447,7 +3413,8 @@ function exportReport(format){
       csvField((tags || []).join('|')), csvField(enabled === false ? '否' : '是'),
       dur.totalSec, dur.avgSec, dur.last30Sec,
       s7.totals.live_on, s7.totals.new_post, s30.totals.live_on, s30.totals.new_post,
-      csvField(statusOf(platform, id))
+      csvField(statusOf(platform, id)),
+      csvField(dur.unknownCount || dur.legacyUnknown ? '部分未知，仅汇总已确认时长' : '已确认时长')
     ].join(','));
   }
   (rooms || []).forEach(function(r){ addRoomRow(r.platform, String(r.id), r.name || String(r.id), r.tags, r.enabled); });

@@ -22,14 +22,23 @@ post_tracking.json）做去重：开播后写 "live"，下一轮读到 prev=live
   - 新作品：key = "post:{sec_uid}:{aweme_id}"，永久不重复（同一作品只推一次）。
     退化计数模式：key = "post:{sec_uid}:count:{count}"，永久不重复。
 
-账本本身也由 CI 持久化（git add -f notify_dedup.json），因此跨 run 有效；
-即便单次持久化失败，至多只会在冷却窗口后补推一次，不会形成刷屏。
+发送成功后立即通过 Contents API 尽力保存账本，检测前读取远端最新账本。
+Git 持久化仍是第二道保障。两条链路都失败时仍可能重复发送；该账本不是
+分布式发送锁，因此检测工作流必须继续串行运行。
 """
 
+import base64
+import json
+import logging
 import math
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 # 复用公共 JSON 读写（原子写，避免半截文件）
 try:
@@ -72,11 +81,38 @@ MAX_ENTRIES = 5000
 
 
 def _load() -> Dict[str, Any]:
-    return load_json_file(LEDGER_FILE, {})
+    ledger = load_json_file(LEDGER_FILE, {})
+    return ledger if isinstance(ledger, dict) else {}
 
 
 def _save(ledger: Dict[str, Any]) -> None:
     save_json_file(LEDGER_FILE, ledger)
+
+
+def _timestamp(entry: Any) -> float:
+    try:
+        ts = float(entry.get("ts", 0))
+        return ts if math.isfinite(ts) and ts >= 0 else 0.0
+    except (AttributeError, TypeError, ValueError):
+        return 0.0
+
+
+def merge_ledgers(local: Dict, remote: Dict) -> Dict:
+    """Union of keys: live uses latest success; permanent keys keep first success.
+
+    A damaged permanent entry still records that the item was already sent.
+    Shared by API sync and Git persistence so neither can undo the other.
+    """
+    merged = {}
+    for key in local.keys() | remote.keys():
+        timestamps = [_timestamp(source[key]) for source in (local, remote) if key in source]
+        if key.startswith("live:"):
+            ts = max(timestamps)
+        else:
+            valid = [ts for ts in timestamps if ts > 0]
+            ts = min(valid) if valid else 0.0
+        merged[key] = {"ts": ts}
+    return merged
 
 
 def should_notify(key: str, cooldown: float = LIVE_COOLDOWN_SECONDS,
@@ -107,7 +143,7 @@ def should_notify(key: str, cooldown: float = LIVE_COOLDOWN_SECONDS,
 
 
 def record(key: str, now: Optional[float] = None) -> None:
-    """推送成功后记录该 key 的发送时间（幂等：已存在则刷新时间戳）。
+    """成功后记录：直播刷新最近时间，永久作品保留首次时间，并尽力同步。
 
     仅在推送确实成功时调用，避免「推送失败却已标记去重」导致漏报后无法补推。
     """
@@ -115,8 +151,94 @@ def record(key: str, now: Optional[float] = None) -> None:
         return
     now = now if now is not None else time.time()
     ledger = _load()
-    ledger[key] = {"ts": now}
-    _save(ledger)
+    _save(merge_ledgers(ledger, {key: {"ts": now}}))
+    if os.environ.get("DEDUP_PUSH_REMOTE", "1").lower() not in ("0", "false", ""):
+        push_to_remote()
+
+
+def _remote_config():
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return None
+    branch = os.environ.get("DEDUP_BRANCH") or os.environ.get("GITHUB_REF_NAME") or "main"
+    url = f"https://api.github.com/repos/{repo}/contents/notify_dedup.json"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+               "User-Agent": "blive-monitor", "Content-Type": "application/json"}
+    return url, branch, headers
+
+
+def _read_remote(url, branch, headers):
+    req = urllib.request.Request(url + "?" + urllib.parse.urlencode({"ref": branch}), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None, {}
+        raise
+    if not isinstance(payload, dict) or not payload.get("sha") or payload.get("encoding") != "base64":
+        raise ValueError("Unexpected remote ledger response")
+    ledger = json.loads(base64.b64decode(payload["content"]))
+    if not isinstance(ledger, dict):
+        raise ValueError("Remote ledger must be an object")
+    return payload["sha"], ledger
+
+
+def sync_from_remote() -> int:
+    """Refresh before detection; failures warn and retain the local ledger."""
+    config = _remote_config()
+    if config is None:
+        return 0
+    try:
+        _, remote = _read_remote(*config)
+        local = _load()
+        merged = merge_ledgers(local, remote)
+        changes = sum(local.get(key) != value for key, value in merged.items())
+        if changes:
+            _save(merged)
+        return changes
+    except Exception as exc:
+        logger.warning("去重账本同步失败（%s），继续使用本地账本", type(exc).__name__)
+        return 0
+
+
+def push_to_remote(max_retries: int = 2) -> bool:
+    """Save after successful delivery, retrying conflicts with a fresh merge.
+
+    Missing credentials skip remote access. Network/permission/schema failures
+    retain the local success record for the existing Git persistence step.
+    """
+    config = _remote_config()
+    if config is None:
+        return False
+    url, branch, headers = config
+    for attempt in range(max_retries):
+        try:
+            sha, remote = _read_remote(*config)
+            merged = merge_ledgers(_load(), remote)
+            _save(merged)
+            if sha and merged == remote:
+                return True
+            body = {"message": "📡 update notify_dedup [skip ci]", "branch": branch,
+                    "content": base64.b64encode(json.dumps(merged, ensure_ascii=False,
+                                                         indent=2).encode("utf-8")).decode("ascii")}
+            if sha:
+                body["sha"] = sha
+            req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
+                                         headers=headers, method="PUT")
+            with urllib.request.urlopen(req, timeout=10) as response:
+                response.read()
+            return True
+        except urllib.error.HTTPError as exc:
+            if exc.code in (409, 422) and attempt + 1 < max_retries:
+                continue
+            logger.warning("去重账本回写失败（HTTP %s），保留本地记录等待 Git 持久化", exc.code)
+            return False
+        except Exception as exc:
+            logger.warning("去重账本回写失败（%s），保留本地记录等待 Git 持久化", type(exc).__name__)
+            return False
+    return False
 
 
 def prune(now: Optional[float] = None) -> None:
@@ -124,7 +246,7 @@ def prune(now: Optional[float] = None) -> None:
 
     - 丢弃过期的 live: key（距上次发送超过 LIVE_KEY_TTL_SECONDS）；
     - post: key 永久保留（同一作品只推一次，绝不能因裁剪而重推）；
-    - 若仍超过 MAX_ENTRIES，保留最近 N 条。
+    - 容量限制仅裁剪 live: 条目，永久记录优先保留。
     """
     now = now if now is not None else time.time()
     ledger = _load()
@@ -146,8 +268,10 @@ def prune(now: Optional[float] = None) -> None:
             kept[k] = v
 
     if len(kept) > MAX_ENTRIES:
-        items = sorted(kept.items(), key=lambda kv: kv[1].get("ts", 0))
-        kept = dict(items[-MAX_ENTRIES:])
+        permanent = {k: v for k, v in kept.items() if not k.startswith("live:")}
+        live = sorted(((k, v) for k, v in kept.items() if k.startswith("live:")),
+                      key=lambda kv: _timestamp(kv[1]), reverse=True)
+        kept = {**permanent, **dict(live[:max(0, MAX_ENTRIES - len(permanent))])}
 
     if len(kept) != len(ledger):
         _save(kept)

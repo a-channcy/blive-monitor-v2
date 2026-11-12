@@ -183,3 +183,75 @@ def test_unrecognized_douyin_status_code_is_not_confirmed_offline(monkeypatch):
     page=r'{\"id_str\":\"123\",\"status\":99,\"title\":\"fixture\",\"user_count\":1}'
     monkeypatch.setattr(cs,'fetch_with_retry',lambda *a,**k:page.encode('utf-8'))
     assert cs.fetch_douyin('123')['status']=='error'
+
+
+def test_duration_settles_at_last_confirmed_live_not_detection_time(cycles):
+    run, _, _, read, _, _ = cycles
+    run()
+    for _ in range(12):
+        run(minutes=5)
+    run(minutes=540, status=0)
+    tracking = read('tracking')['bilibili_123']
+    assert tracking['last_duration'] == '1h0min'
+    assert tracking['live_start'] == ''
+    assert not tracking.get('live_last_seen')
+    assert tracking['live_duration'] == ''
+    assert read('status')['rooms'][0]['duration_session']['seconds'] == 3600
+    assert read('history')[-1]['duration_session']['seconds'] == 3600
+
+
+def test_detection_failure_does_not_refresh_online_evidence(cycles):
+    run, _, _, read, _, _ = cycles
+    run()
+    run(minutes=5)
+    run(minutes=60, status=RuntimeError('network unavailable'))
+    tracking = read('tracking')['bilibili_123']
+    assert tracking['live_last_seen'] == '2026-11-12 12:05:00'
+    assert tracking['live_start'] == '2026-11-12 12:00:00'
+    run(minutes=5, status=0)
+    assert read('tracking')['bilibili_123']['last_duration'] == '5min'
+
+
+def test_legacy_duration_without_online_evidence_is_unknown(cycles):
+    run, _, _, read, folder, _ = cycles
+    (folder / 'tracking.json').write_text(json.dumps({'bilibili_123': {
+        'live_start': '2026-11-12 02:00:00', 'live_duration': '10h0min',
+        'last_duration': 'old-session', 'last_live': 'older-session',
+    }}), encoding='utf-8')
+    run(status=0)
+    tracking = read('tracking')['bilibili_123']
+    assert tracking['last_duration'] == ''
+    assert tracking['last_live'] == '2026-11-12 02:00:00'
+    assert tracking['live_duration'] == ''
+
+
+def test_gap_between_live_observations_does_not_claim_continuous_duration(cycles):
+    run, _, _, read, _, _ = cycles
+    run()
+    run(minutes=5)
+    run(minutes=180)
+    assert read('status')['rooms'][0]['live_duration'] == ''
+    assert read('status')['rooms'][0]['duration_session']['seconds'] is None
+    run(minutes=5, status=0)
+    assert read('tracking')['bilibili_123']['last_duration'] == ''
+    # A subsequent session gets fresh evidence, not the previous uncertainty.
+    run(minutes=5)
+    run(minutes=5)
+    run(minutes=5, status=0)
+    assert read('tracking')['bilibili_123']['last_duration'] == '5min'
+
+
+def test_long_continuously_observed_live_session_is_not_discarded():
+    tracking = {}
+    start = datetime(2026, 11, 12, 12)
+    for minutes in range(0, 25 * 60 + 1, 5):
+        cs.update_live_tracking(tracking, 'live', start + timedelta(minutes=minutes), reliable=True)
+    cs.update_live_tracking(tracking, 'offline', start + timedelta(hours=25, minutes=5), reliable=True)
+    assert tracking['last_duration'] == '25h0min'
+
+
+@pytest.mark.parametrize('last_seen', [None, 'invalid', '2026-11-11 12:00:00', '2026-11-13 12:00:00'])
+def test_invalid_online_evidence_never_produces_duration(last_seen):
+    tracking = {'live_start': '2026-11-12 12:00:00', 'live_last_seen': last_seen}
+    cs.update_live_tracking(tracking, 'offline', datetime(2026, 11, 12, 13), reliable=True)
+    assert tracking['last_duration'] == ''
