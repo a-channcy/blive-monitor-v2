@@ -54,6 +54,13 @@ def test_dedup_empty_both():
     assert ms.merge_notify_dedup({}, {}) == {}
 
 
+def test_live_cooldown_uses_latest_success_in_both_merge_directions():
+    old = {'live:bilibili_123': {'ts': 100}}
+    new = {'live:bilibili_123': {'ts': 200}}
+    assert ms.merge_notify_dedup(old, new)['live:bilibili_123']['ts'] == 200
+    assert ms.merge_notify_dedup(new, old)['live:bilibili_123']['ts'] == 200
+
+
 # ---------- post_tracking 合并 ----------
 
 def test_tracking_newer_baseline_wins():

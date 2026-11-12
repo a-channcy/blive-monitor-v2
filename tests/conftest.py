@@ -20,6 +20,10 @@ def _isolate_dedup_ledger(tmp_path, monkeypatch):
     """
     import notify_dedup
     monkeypatch.setattr(notify_dedup, "LEDGER_FILE", str(tmp_path / "notify_dedup.json"))
+    # No test may inherit real credentials and write the user's repository.
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("DEDUP_PUSH_REMOTE", raising=False)
 
 
 @pytest.fixture(autouse=True)

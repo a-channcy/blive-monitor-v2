@@ -23,7 +23,7 @@ def test_push_exit_and_preserved_state(tmp_path, reject_count, expected):
     git(local, 'checkout', '-b', 'main')
     git(local, 'config', 'user.email', 'test@example.invalid')
     git(local, 'config', 'user.name', 'Test')
-    for name in ['merge_state.py', 'common.py', 'log_utils.py']:
+    for name in ['merge_state.py', 'common.py', 'log_utils.py', 'notify_dedup.py']:
         shutil.copyfile(ROOT / name, local / name)
     (local / 'status.json').write_text('{"updated":"old","rooms":[]}', encoding='utf-8')
     git(local, 'add', '.')

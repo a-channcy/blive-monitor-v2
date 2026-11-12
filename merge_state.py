@@ -22,7 +22,7 @@ abort 后本地提交基于旧 base，push 非快进被拒，状态丢失。
 
 合并规则
 ----------
-  notify_dedup.json : 取并集（local ∪ remote），同一 key 保留更早的 ts
+  notify_dedup.json : 取并集，直播取最近成功时间，永久作品保留首次时间
                       —— 绝不丢失任何去重记录，是防重复推送的核心
   post_tracking.json: 每个账号取基线更新的那份（aweme_id 数值更大，或
                       create_time 更新）；sec_uid/nickname 取非空值
@@ -48,6 +48,7 @@ from typing import Any, Dict, Optional, Tuple
 from log_utils import HISTORY_MAX
 # 状态文件原子写统一走 common.save_json_file（.tmp + os.replace），避免重复实现
 from common import save_json_file as save_json
+from notify_dedup import merge_ledgers
 
 
 def git_show(repo: str, ref: str, filename: str) -> Optional[str]:
@@ -86,18 +87,8 @@ def load_local_json(filepath: str) -> Dict[str, Any]:
 
 
 def merge_notify_dedup(local: Dict, remote: Dict) -> Dict:
-    """合并去重账本：取并集，同一 key 保留更早的 ts。
-
-    绝不丢失任何去重记录 —— 这是防止重复推送的核心防线。
-    """
-    merged = {}
-    for key in set(local.keys()) | set(remote.keys()):
-        l_ts = _get_ts(local.get(key))
-        r_ts = _get_ts(remote.get(key))
-        # 保留更早的时间戳（首次推送时间）
-        ts = min(l_ts, r_ts) if (l_ts and r_ts) else (l_ts or r_ts)
-        merged[key] = {"ts": ts}
-    return merged
+    """与远端 Contents API 共用合并规则，防止直播冷却时间回退。"""
+    return merge_ledgers(local, remote)
 
 
 def _get_ts(entry) -> float:

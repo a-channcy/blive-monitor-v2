@@ -251,7 +251,7 @@ class Persistence:
                 room.last_checked_at = status_item.get("time") or now_str
                 if status_item.get("last_live"):
                     room.last_live_at = status_item["last_live"]
-                if status_item.get("live_duration"):
+                if "live_duration" in status_item:
                     room.live_duration = status_item["live_duration"]
                 # live_start 来自 meta（基线），由 meta_update 合并。
                 if "live_start" in (meta_update or {}):
