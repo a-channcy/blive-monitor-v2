@@ -146,28 +146,30 @@
   "bilibili_16405": {
     "last_live": "2026-10-30 09:30:23",
     "live_start": "",
-    "live_duration": "1h4min",
+    "live_duration": "",
     "last_duration": "1h9min"
   },
   "bilibili_23329385": {
     "last_live": "2026-10-02 08:51:20",
     "live_start": "",
-    "last_duration": "5h47min"
+    "last_duration": "5h47min",
+    "live_duration": ""
   },
   "bilibili_1938412195": {
     "last_live": "2026-11-11 20:20:20",
     "live_start": "",
     "last_duration": "1h34min",
-    "live_duration": "1h29min"
+    "live_duration": ""
   },
   "bilibili_1724774841": {
     "last_live": "",
-    "live_start": ""
+    "live_start": "",
+    "live_duration": ""
   },
   "bilibili_25128442": {
     "last_live": "2026-11-05 19:05:14",
     "live_start": "",
-    "live_duration": "55min",
+    "live_duration": "",
     "last_duration": "1h0min"
   },
   "bilibili_1616": {
@@ -179,18 +181,18 @@
     "live_start": "",
     "sec_uid": "MS4wLjABAAAAwyP7d4n3256RPrr1SEDMQZeH8K2Ga12mIO1pnT1S30A",
     "last_duration": "1h30min",
-    "live_duration": "1h24min"
+    "live_duration": ""
   },
   "bilibili_11163068": {
     "last_live": "2026-11-11 20:15:18",
     "live_start": "",
     "last_duration": "5h40min",
-    "live_duration": "5h35min"
+    "live_duration": ""
   },
   "bilibili_48743": {
     "last_live": "2026-10-26 21:05:19",
     "live_start": "",
-    "live_duration": "2h49min",
+    "live_duration": "",
     "last_duration": "2h55min"
   }
 }
