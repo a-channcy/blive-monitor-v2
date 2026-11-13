@@ -189,14 +189,14 @@
     "live_start": "2026-11-13 08:25:14",
     "sec_uid": "MS4wLjABAAAAwyP7d4n3256RPrr1SEDMQZeH8K2Ga12mIO1pnT1S30A",
     "last_duration": "1h30min",
-    "live_duration": "55min",
+    "live_duration": "1h0min",
     "live_duration_uncertain": false,
-    "live_last_seen": "2026-11-13 09:20:20",
+    "live_last_seen": "2026-11-13 09:25:16",
     "duration_session": {
       "start": "2026-11-13 08:25:14",
-      "last_seen": "2026-11-13 09:20:20",
+      "last_seen": "2026-11-13 09:25:16",
       "ended": false,
-      "seconds": 3306
+      "seconds": 3602
     }
   },
   "bilibili_11163068": {
