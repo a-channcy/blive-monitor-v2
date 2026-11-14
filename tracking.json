@@ -186,17 +186,17 @@
   },
   "douyin_928121078262": {
     "last_live": "2026-11-13 08:25:14",
-    "live_start": "",
+    "live_start": "2026-11-14 08:00:28",
     "sec_uid": "MS4wLjABAAAAwyP7d4n3256RPrr1SEDMQZeH8K2Ga12mIO1pnT1S30A",
     "last_duration": "2h35min",
-    "live_duration": "",
+    "live_duration": "0min",
     "live_duration_uncertain": false,
-    "live_last_seen": "",
+    "live_last_seen": "2026-11-14 08:00:28",
     "duration_session": {
-      "start": "2026-11-13 08:25:14",
-      "last_seen": "2026-11-13 11:00:29",
-      "ended": true,
-      "seconds": 9315
+      "start": "2026-11-14 08:00:28",
+      "last_seen": "2026-11-14 08:00:28",
+      "ended": false,
+      "seconds": 0
     }
   },
   "bilibili_11163068": {
