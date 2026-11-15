@@ -1,22 +1,22 @@
 {
-  "updated": "2026-11-15 21:20:18",
+  "updated": "2026-11-15 21:25:16",
   "rooms": [
     {
       "platform": "douyin",
       "id": "928121078262",
       "name": "土豆六道",
-      "status": "live",
+      "status": "offline",
       "title": "答疑解惑",
-      "online": 26,
+      "online": 0,
       "area": "",
-      "time": "2026-11-15 21:20:19",
+      "time": "2026-11-15 21:25:17",
       "sec_uid": "MS4wLjABAAAAwyP7d4n3256RPrr1SEDMQZeH8K2Ga12mIO1pnT1S30A",
-      "last_live": "2026-11-14 08:00:28",
-      "live_duration": "9min",
+      "last_live": "2026-11-15 21:10:21",
+      "live_duration": "",
       "duration_session": {
         "start": "2026-11-15 21:10:21",
         "last_seen": "2026-11-15 21:20:18",
-        "ended": false,
+        "ended": true,
         "seconds": 597
       }
     },
@@ -28,7 +28,7 @@
       "title": "答疑解惑",
       "online": 0,
       "area": "互动玩法·养成玩法",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "2026-10-30 09:30:23",
       "live_duration": "",
@@ -42,7 +42,7 @@
       "title": "长赢之道研究院",
       "online": 0,
       "area": "知识·社会观察·财经",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "2026-10-02 08:51:20",
       "live_duration": "",
@@ -56,7 +56,7 @@
       "title": "点与线",
       "online": 0,
       "area": "知识·历史·人文·综合",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "2026-11-14 21:05:14",
       "live_duration": "",
@@ -73,17 +73,17 @@
       "name": "知行复盘录",
       "status": "live",
       "title": "晚上好",
-      "online": 1434,
+      "online": 1409,
       "area": "生活·生活杂谈",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "",
-      "live_duration": "2h4min",
+      "live_duration": "2h9min",
       "duration_session": {
         "start": "2026-11-15 19:15:24",
-        "last_seen": "2026-11-15 21:20:18",
+        "last_seen": "2026-11-15 21:25:16",
         "ended": false,
-        "seconds": 7494
+        "seconds": 7792
       }
     },
     {
@@ -94,7 +94,7 @@
       "title": "A股到底怎么了？",
       "online": 0,
       "area": "知识·社会观察·财经",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "2026-11-12 19:05:16",
       "live_duration": "",
@@ -111,17 +111,17 @@
       "name": "zettaranc",
       "status": "live",
       "title": "开！",
-      "online": 367841,
+      "online": 370339,
       "area": "知识·教育学习",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "2026-11-11 20:15:18",
-      "live_duration": "1h15min",
+      "live_duration": "1h20min",
       "duration_session": {
         "start": "2026-11-15 20:05:16",
-        "last_seen": "2026-11-15 21:20:18",
+        "last_seen": "2026-11-15 21:25:16",
         "ended": false,
-        "seconds": 4502
+        "seconds": 4800
       }
     },
     {
@@ -132,7 +132,7 @@
       "title": "什么 这就年底了",
       "online": 0,
       "area": "娱乐·萌宅领域",
-      "time": "2026-11-15 21:20:18",
+      "time": "2026-11-15 21:25:16",
       "sec_uid": "",
       "last_live": "2026-11-14 21:00:31",
       "live_duration": "",
