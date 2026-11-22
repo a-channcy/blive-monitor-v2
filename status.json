@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-23 00:30:24",
+  "updated": "2026-11-23 00:35:16",
   "rooms": [
     {
       "platform": "douyin",
@@ -9,7 +9,7 @@
       "title": "答疑解惑",
       "online": 0,
       "area": "",
-      "time": "2026-11-23 00:30:25",
+      "time": "2026-11-23 00:35:17",
       "sec_uid": "MS4wLjABAAAAwyP7d4n3256RPrr1SEDMQZeH8K2Ga12mIO1pnT1S30A",
       "last_live": "2026-11-20 07:55:16",
       "live_duration": "",
@@ -28,7 +28,7 @@
       "title": "影游侠！",
       "online": 0,
       "area": "互动玩法·养成玩法",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-11-16 00:00:28",
       "live_duration": "",
@@ -47,7 +47,7 @@
       "title": "长赢之道研究院",
       "online": 0,
       "area": "知识·社会观察·财经",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-10-02 08:51:20",
       "live_duration": "",
@@ -59,17 +59,17 @@
       "name": "知行图表交易",
       "status": "live",
       "title": "枯",
-      "online": 2207,
+      "online": 2244,
       "area": "知识·历史·人文·综合",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-11-21 21:05:22",
-      "live_duration": "25min",
+      "live_duration": "30min",
       "duration_session": {
         "start": "2026-11-23 00:05:16",
-        "last_seen": "2026-11-23 00:30:24",
+        "last_seen": "2026-11-23 00:35:16",
         "ended": false,
-        "seconds": 1508
+        "seconds": 1800
       }
     },
     {
@@ -80,7 +80,7 @@
       "title": "晚上好",
       "online": 0,
       "area": "生活·生活杂谈",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-11-15 19:15:24",
       "live_duration": "",
@@ -99,7 +99,7 @@
       "title": "A股到底怎么了？",
       "online": 0,
       "area": "知识·社会观察·财经",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-11-19 19:05:16",
       "live_duration": "",
@@ -116,17 +116,17 @@
       "name": "zettaranc",
       "status": "live",
       "title": "正是品茶时～（周日晚八）",
-      "online": 369294,
+      "online": 365299,
       "area": "知识·教育学习",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-11-22 20:10:21",
-      "live_duration": "1h59min",
+      "live_duration": "2h4min",
       "duration_session": {
         "start": "2026-11-22 22:30:31",
-        "last_seen": "2026-11-23 00:30:24",
+        "last_seen": "2026-11-23 00:35:16",
         "ended": false,
-        "seconds": 7193
+        "seconds": 7485
       }
     },
     {
@@ -137,7 +137,7 @@
       "title": "什么 这就年底了",
       "online": 0,
       "area": "娱乐·萌宅coser",
-      "time": "2026-11-23 00:30:24",
+      "time": "2026-11-23 00:35:16",
       "sec_uid": "",
       "last_live": "2026-11-14 21:00:31",
       "live_duration": "",
