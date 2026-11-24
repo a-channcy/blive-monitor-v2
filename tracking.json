@@ -193,16 +193,16 @@
   },
   "bilibili_25128442": {
     "last_live": "2026-11-19 19:05:16",
-    "live_start": "",
-    "live_duration": "",
+    "live_start": "2026-11-24 19:05:19",
+    "live_duration": "0min",
     "last_duration": "55min",
     "live_duration_uncertain": false,
-    "live_last_seen": "",
+    "live_last_seen": "2026-11-24 19:05:19",
     "duration_session": {
-      "start": "2026-11-19 19:05:16",
-      "last_seen": "2026-11-19 20:00:30",
-      "ended": true,
-      "seconds": 3314
+      "start": "2026-11-24 19:05:19",
+      "last_seen": "2026-11-24 19:05:19",
+      "ended": false,
+      "seconds": 0
     }
   },
   "bilibili_1616": {
