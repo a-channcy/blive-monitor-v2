@@ -230,10 +230,10 @@
     "last_duration": "4h9min",
     "live_duration": "",
     "live_duration_uncertain": true,
-    "live_last_seen": "2026-11-26 00:45:20",
+    "live_last_seen": "2026-11-26 00:50:22",
     "duration_session": {
       "start": "2026-11-25 20:05:17",
-      "last_seen": "2026-11-26 00:45:20",
+      "last_seen": "2026-11-26 00:50:22",
       "ended": false,
       "seconds": null
     }
