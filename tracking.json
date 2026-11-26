@@ -146,15 +146,15 @@
   "bilibili_16405": {
     "last_live": "2026-11-24 20:20:25",
     "live_start": "2026-11-26 09:25:15",
-    "live_duration": "1h5min",
+    "live_duration": "1h9min",
     "last_duration": "3h4min",
     "live_duration_uncertain": false,
-    "live_last_seen": "2026-11-26 10:30:27",
+    "live_last_seen": "2026-11-26 10:35:14",
     "duration_session": {
       "start": "2026-11-26 09:25:15",
-      "last_seen": "2026-11-26 10:30:27",
+      "last_seen": "2026-11-26 10:35:14",
       "ended": false,
-      "seconds": 3912
+      "seconds": 4199
     }
   },
   "bilibili_23329385": {
