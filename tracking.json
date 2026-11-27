@@ -146,15 +146,15 @@
   "bilibili_16405": {
     "last_live": "2026-11-26 09:25:15",
     "live_start": "2026-11-27 19:50:19",
-    "live_duration": "1h50min",
+    "live_duration": "1h55min",
     "last_duration": "2h30min",
     "live_duration_uncertain": false,
-    "live_last_seen": "2026-11-27 21:40:21",
+    "live_last_seen": "2026-11-27 21:45:20",
     "duration_session": {
       "start": "2026-11-27 19:50:19",
-      "last_seen": "2026-11-27 21:40:21",
+      "last_seen": "2026-11-27 21:45:20",
       "ended": false,
-      "seconds": 6602
+      "seconds": 6901
     }
   },
   "bilibili_23329385": {
@@ -167,14 +167,14 @@
     "last_live": "2026-11-23 00:05:16",
     "live_start": "2026-11-27 21:10:25",
     "last_duration": "1h0min",
-    "live_duration": "29min",
+    "live_duration": "34min",
     "live_duration_uncertain": false,
-    "live_last_seen": "2026-11-27 21:40:21",
+    "live_last_seen": "2026-11-27 21:45:20",
     "duration_session": {
       "start": "2026-11-27 21:10:25",
-      "last_seen": "2026-11-27 21:40:21",
+      "last_seen": "2026-11-27 21:45:20",
       "ended": false,
-      "seconds": 1796
+      "seconds": 2095
     }
   },
   "bilibili_1724774841": {
